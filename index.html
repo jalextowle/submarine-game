@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tropical Submarine Adventure</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Three.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for camera manipulation -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- GLTFLoader for loading 3D models -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+    <div class="game-container">
+        <div class="hud">
+            <div class="score-display">
+                <span>Score: </span>
+                <span id="score-value">0</span>
+            </div>
+            <div class="depth-meter">
+                <span>Depth: </span>
+                <span id="depth-value">0</span>
+                <span>m</span>
+            </div>
+        </div>
+        <div id="game-canvas"></div>
+        <div class="controls-info">
+            <p>W/Up: Forward | S/Down: Backward | A/Left: Turn left | D/Right: Turn right | Q: Rise | E: Dive</p>
+        </div>
+    </div>
+    <script src="js/game3d.js"></script>
+</body>
+</html> 
