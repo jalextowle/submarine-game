@@ -5,12 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tropical Submarine Adventure</title>
     <link rel="stylesheet" href="css/style.css">
-    <!-- Three.js library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- OrbitControls for camera manipulation -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <!-- GLTFLoader for loading 3D models -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- Import Three.js as a module -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.152.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="game-container">
@@ -27,9 +30,11 @@
         </div>
         <div id="game-canvas"></div>
         <div class="controls-info">
-            <p>W/Up: Move Forward | S/Down: Move Backward | A/Left: Turn Left | D/Right: Turn Right | Q: Rise | E: Dive | R: Restart</p>
+            <p>W: Forward | S: Backward | A: Strafe Left | D: Strafe Right | Mouse: Aim | Space: Fire Torpedo</p>
         </div>
     </div>
-    <script src="js/game.js"></script>
+    
+    <!-- Load main game script as a module -->
+    <script type="module" src="js/main.js"></script>
 </body>
 </html> 
