@@ -18,7 +18,6 @@ const MOVEMENT_SPEED = 0.5;
 const ROTATION_SPEED = 0.03;
 const MAX_DEPTH = 500;
 const SURFACE_LEVEL = 10;
-const TREASURE_SPAWN_RATE = 0.005;
 const WORLD_SIZE = 1000;
 const OCEAN_DEPTH = 500;
 
@@ -33,8 +32,8 @@ const game = {
     },
     camera: {
         main: null,
-        followDistance: 15,
-        heightOffset: 5,
+        followDistance: 25,
+        heightOffset: 8,
         lookAtOffset: new THREE.Vector3(0, 0, 10)
     },
     keys: {
@@ -51,11 +50,8 @@ const game = {
     },
     scene: null,
     renderer: null,
-    treasures: [],
-    seaObjects: [],
-    score: 0,
-    gameOver: false,
-    clock: new THREE.Clock()
+    clock: new THREE.Clock(),
+    collisionObjects: []
 };
 
 debug('Game state initialized');
@@ -71,12 +67,14 @@ function initScene() {
         // Reduce fog significantly to see the ocean floor clearly
         game.scene.fog = new THREE.FogExp2(0x40E0D0, 0.0004);
 
-        // Create renderer
+        // Create renderer with improved shadow settings
         game.renderer = new THREE.WebGLRenderer({ antialias: true });
         game.renderer.setPixelRatio(window.devicePixelRatio);
         game.renderer.setSize(window.innerWidth, window.innerHeight);
         game.renderer.shadowMap.enabled = true;
         game.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        game.renderer.shadowMap.autoUpdate = true;
+        game.renderer.physicallyCorrectLights = true;
         
         // Add renderer to DOM
         const container = document.getElementById('game-canvas');
@@ -97,18 +95,19 @@ function initScene() {
         const ambientLight = new THREE.AmbientLight(0xFFFFFF, 0.9);
         game.scene.add(ambientLight);
         
-        // Add stronger directional light (sun)
+        // Add stronger directional light (sun) with improved shadow settings
         const sunLight = new THREE.DirectionalLight(0xFFFFFF, 1.8);
         sunLight.position.set(100, 100, 100);
         sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 1024;
-        sunLight.shadow.mapSize.height = 1024;
+        sunLight.shadow.mapSize.width = 2048; // Increased for better shadow quality
+        sunLight.shadow.mapSize.height = 2048;
         sunLight.shadow.camera.near = 10;
         sunLight.shadow.camera.far = 500;
-        sunLight.shadow.camera.left = -100;
-        sunLight.shadow.camera.right = 100;
-        sunLight.shadow.camera.top = 100;
-        sunLight.shadow.camera.bottom = -100;
+        sunLight.shadow.camera.left = -150;
+        sunLight.shadow.camera.right = 150;
+        sunLight.shadow.camera.top = 150;
+        sunLight.shadow.camera.bottom = -150;
+        sunLight.shadow.bias = -0.0005; // Reduces shadow acne
         game.scene.add(sunLight);
 
         // Add underwater light with tropical blue color - reduce intensity
@@ -121,7 +120,7 @@ function initScene() {
         floorAmbientLight.position.set(0, -OCEAN_DEPTH, 0);
         game.scene.add(floorAmbientLight);
         
-        // Add multiple spotlights to illuminate the ocean floor
+        // Add multiple spotlights to illuminate the ocean floor with shadows
         for (let i = 0; i < 5; i++) {
             const angle = (i / 5) * Math.PI * 2;
             const radius = WORLD_SIZE / 4;
@@ -141,6 +140,9 @@ function initScene() {
             spotLight.penumbra = 0.5;
             spotLight.decay = 1.5;
             spotLight.distance = 300;
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 1024;
+            spotLight.shadow.mapSize.height = 1024;
             
             game.scene.add(spotLight);
             game.scene.add(spotLight.target);
@@ -152,6 +154,9 @@ function initScene() {
             game.camera.main.updateProjectionMatrix();
             game.renderer.setSize(window.innerWidth, window.innerHeight);
         });
+        
+        // Initialize collision objects array
+        game.collisionObjects = [];
         
         debug('Scene initialization complete');
     } catch (error) {
@@ -234,79 +239,124 @@ function createWaterSurface() {
     }
 }
 
-// Create clouds in the sky
-function createClouds() {
-    debug('Creating clouds');
-    try {
-        // Create several cloud clusters
-        for (let i = 0; i < 15; i++) {
-            const cloudGroup = new THREE.Group();
-            
-            // Each cloud is made of several spheres clustered together
-            const numPuffs = Math.floor(Math.random() * 5) + 3;
-            const cloudSize = Math.random() * 30 + 20;
-            
-            for (let j = 0; j < numPuffs; j++) {
-                const puffSize = Math.random() * (cloudSize / 2) + (cloudSize / 4);
-                const cloudGeometry = new THREE.SphereGeometry(puffSize, 7, 7);
-                const cloudMaterial = new THREE.MeshStandardMaterial({
-                    color: 0xFFFFFF,
-                    transparent: true,
-                    opacity: 0.9,
-                    roughness: 1,
-                    metalness: 0
-                });
-                
-                const puff = new THREE.Mesh(cloudGeometry, cloudMaterial);
-                
-                // Position puffs relative to each other to form a cloud
-                puff.position.set(
-                    (Math.random() - 0.5) * cloudSize,
-                    (Math.random() - 0.5) * (cloudSize / 3),
-                    (Math.random() - 0.5) * cloudSize
-                );
-                
-                cloudGroup.add(puff);
-            }
-            
-            // Position the cloud in the sky
-            cloudGroup.position.set(
-                (Math.random() - 0.5) * WORLD_SIZE,
-                100 + Math.random() * 50,
-                (Math.random() - 0.5) * WORLD_SIZE
-            );
-            
-            // Add some random rotation to each cloud
-            cloudGroup.rotation.y = Math.random() * Math.PI * 2;
-            
-            // Add cloud movement data
-            cloudGroup.userData = {
-                speed: Math.random() * 0.05 + 0.02,
-                direction: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize()
-            };
-            
-            game.scene.add(cloudGroup);
-            game.seaObjects.push(cloudGroup); // We'll use seaObjects to update them
-        }
-        
-        debug('Clouds created');
-    } catch (error) {
-        console.error('Error in createClouds:', error);
-    }
-}
-
 // Create ocean floor
 function createOceanFloor() {
     debug('Creating ocean floor');
     try {
+        // Create procedural sand texture with a reliable sandy texture
+        // Create a procedural sand texture without relying on external URLs
+        const sandCanvas = document.createElement('canvas');
+        sandCanvas.width = 512;
+        sandCanvas.height = 512;
+        const ctx = sandCanvas.getContext('2d');
+        
+        // Fill with base sand color
+        ctx.fillStyle = '#E6D5AC';
+        ctx.fillRect(0, 0, 512, 512);
+        
+        // Add sand grain noise
+        for (let i = 0; i < 15000; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const size = Math.random() * 1.5 + 0.5;
+            const shade = Math.random() * 30;
+            
+            ctx.fillStyle = `rgba(${180 - shade}, ${165 - shade}, ${130 - shade}, 0.5)`;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Add subtle ripples
+        for (let i = 0; i < 60; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const length = Math.random() * 40 + 10;
+            const width = Math.random() * 5 + 1;
+            const angle = Math.random() * Math.PI;
+            
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            
+            const grd = ctx.createLinearGradient(-length/2, 0, length/2, 0);
+            grd.addColorStop(0, 'rgba(160, 145, 110, 0)');
+            grd.addColorStop(0.5, 'rgba(160, 145, 110, 0.4)');
+            grd.addColorStop(1, 'rgba(160, 145, 110, 0)');
+            
+            ctx.fillStyle = grd;
+            ctx.fillRect(-length/2, -width/2, length, width);
+            ctx.restore();
+        }
+        
+        // Create texture from canvas
+        const sandTexture = new THREE.CanvasTexture(sandCanvas);
+        sandTexture.wrapS = THREE.RepeatWrapping;
+        sandTexture.wrapT = THREE.RepeatWrapping;
+        sandTexture.repeat.set(20, 20);
+        
+        // Create a bump map for sand
+        const bumpCanvas = document.createElement('canvas');
+        bumpCanvas.width = 512;
+        bumpCanvas.height = 512;
+        const bumpCtx = bumpCanvas.getContext('2d');
+        
+        // Fill with neutral gray (no bump)
+        bumpCtx.fillStyle = '#808080';
+        bumpCtx.fillRect(0, 0, 512, 512);
+        
+        // Add bump details
+        for (let i = 0; i < 3000; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const size = Math.random() * 3 + 1;
+            const bright = Math.random() * 80;
+            
+            // Make small bumps (lighter = higher)
+            bumpCtx.fillStyle = `rgb(${128 + bright}, ${128 + bright}, ${128 + bright})`;
+            bumpCtx.beginPath();
+            bumpCtx.arc(x, y, size, 0, Math.PI * 2);
+            bumpCtx.fill();
+        }
+        
+        // Add ripple bumps
+        for (let i = 0; i < 100; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const length = Math.random() * 60 + 20;
+            const width = Math.random() * 6 + 2;
+            const angle = Math.random() * Math.PI;
+            
+            bumpCtx.save();
+            bumpCtx.translate(x, y);
+            bumpCtx.rotate(angle);
+            
+            const grd = bumpCtx.createLinearGradient(-length/2, 0, length/2, 0);
+            grd.addColorStop(0, 'rgb(128, 128, 128)');
+            grd.addColorStop(0.5, 'rgb(180, 180, 180)');
+            grd.addColorStop(1, 'rgb(128, 128, 128)');
+            
+            bumpCtx.fillStyle = grd;
+            bumpCtx.fillRect(-length/2, -width/2, length, width);
+            bumpCtx.restore();
+        }
+        
+        const sandBumpMap = new THREE.CanvasTexture(bumpCanvas);
+        sandBumpMap.wrapS = THREE.RepeatWrapping;
+        sandBumpMap.wrapT = THREE.RepeatWrapping;
+        sandBumpMap.repeat.set(20, 20);
+        
         // First, create a large flat sandy base that covers the entire ocean floor
         const baseFloorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 4, WORLD_SIZE * 4);
         const baseFloorMaterial = new THREE.MeshStandardMaterial({
-            color: 0xE6C78F, // Sandy color
+            color: 0xEADAB5, // Light sandy beige
             roughness: 1.0,
-            metalness: 0.0,
-            emissive: 0x553311,
-            emissiveIntensity: 0.2
+            metalness: 0.0, // No metalness for sand
+            map: sandTexture,
+            bumpMap: sandBumpMap,
+            bumpScale: 0.3,
+            emissive: 0xEADAB5, // Match base color for subtle light contribution
+            emissiveIntensity: 0.05 // Very subtle glow
         });
         
         const baseFloor = new THREE.Mesh(baseFloorGeometry, baseFloorMaterial);
@@ -316,7 +366,7 @@ function createOceanFloor() {
         game.scene.add(baseFloor);
         
         // Create a larger and more detailed ocean floor
-        const floorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 2, WORLD_SIZE * 2, 128, 128);
+        const floorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 2, WORLD_SIZE * 2, 256, 256);
         
         // Create more pronounced height variations for the ocean floor
         const vertices = floorGeometry.attributes.position.array;
@@ -329,20 +379,24 @@ function createOceanFloor() {
             // Combine multiple noise patterns for more natural terrain
             vertices[i + 1] = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 15 + 
                              Math.sin(x * 0.1 + z * 0.1) * 5 +
-                             Math.cos(distance) * 10;
+                             Math.cos(distance) * 10 +
+                             Math.sin(x * 0.3) * Math.sin(z * 0.2) * 2; // Add more detail
         }
         
         floorGeometry.attributes.position.needsUpdate = true;
         floorGeometry.computeVertexNormals();
         
-        // Create a more realistic sandy floor with much more distinct coloring
+        // Create a more realistic sandy floor with texture
         const floorMaterial = new THREE.MeshStandardMaterial({
-            color: 0xF0D090, // Brighter, more distinct sandy color
-            roughness: 1.0,
+            color: 0xF0E6C8, // Sandy color
+            roughness: 0.9,
             metalness: 0.0,
-            flatShading: true,
-            emissive: 0x553311, // Warm glow to enhance visibility
-            emissiveIntensity: 0.2
+            map: sandTexture,
+            bumpMap: sandBumpMap,
+            bumpScale: 0.5,
+            flatShading: false, // Smoother look
+            emissive: 0xF0E6C8, // Match main color
+            emissiveIntensity: 0.1 // Subtle glow
         });
         
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -351,268 +405,313 @@ function createOceanFloor() {
         floor.receiveShadow = true;
         game.scene.add(floor);
         
-        // Add a spotlight pointing at the ocean floor for better visibility
-        const floorLight = new THREE.SpotLight(0xFFFFAA, 1.5);
-        floorLight.position.set(0, -OCEAN_DEPTH + 100, 0);
+        // Add multiple spotlights pointing at the ocean floor for better visibility
+        // Clear existing lights pointing at floor first
+        const floorLight = new THREE.SpotLight(0xFFFFFF, 2.0); // Much brighter, whiter light
+        floorLight.position.set(0, -OCEAN_DEPTH + 150, 0); 
         floorLight.target.position.set(0, -OCEAN_DEPTH, 0);
         floorLight.angle = Math.PI / 3;
         floorLight.penumbra = 0.5;
-        floorLight.decay = 1.5;
-        floorLight.distance = 300;
+        floorLight.decay = 1.0; // Less decay
+        floorLight.distance = 400; // Greater distance
+        floorLight.castShadow = true;
+        floorLight.shadow.mapSize.width = 2048; // Higher resolution shadows
+        floorLight.shadow.mapSize.height = 2048;
+        floorLight.shadow.bias = -0.0005; // Reduce shadow artifacts
         game.scene.add(floorLight);
         game.scene.add(floorLight.target);
         
-        // Add sand ripple texture using small bumps with higher contrast
-        for (let i = 0; i < 2000; i++) {
-            const bumpSize = Math.random() * 3 + 1;
-            const bumpGeometry = new THREE.SphereGeometry(bumpSize, 4, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+        // Add additional spot lights at different angles to enhance visibility
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2;
+            const offsetX = Math.cos(angle) * 200;
+            const offsetZ = Math.sin(angle) * 200;
             
-            // Use more contrasting colors for sand bumps
-            const sandColors = [0xD2B48C, 0xC2A278, 0xE6C78F, 0xF5DEB3, 0xFFDEAD];
-            const bumpColor = sandColors[Math.floor(Math.random() * sandColors.length)];
-            
-            const bumpMaterial = new THREE.MeshStandardMaterial({
-                color: bumpColor,
-                roughness: 1.0,
-                metalness: 0.0
-            });
-            
-            const bump = new THREE.Mesh(bumpGeometry, bumpMaterial);
-            
-            // Position bumps randomly on ocean floor
-            const x = Math.random() * WORLD_SIZE * 1.8 - WORLD_SIZE * 0.9;
-            const z = Math.random() * WORLD_SIZE * 1.8 - WORLD_SIZE * 0.9;
-            
-            // Get height at this position (approximate)
-            const xIndex = Math.floor((x + WORLD_SIZE) / (WORLD_SIZE * 2) * 128);
-            const zIndex = Math.floor((z + WORLD_SIZE) / (WORLD_SIZE * 2) * 128);
-            const sampleIndex = (zIndex * 128 + xIndex) * 3 + 1;
-            let height = 0;
-            
-            if (sampleIndex >= 0 && sampleIndex < vertices.length) {
-                height = vertices[sampleIndex];
-            }
-            
-            bump.position.set(x, -OCEAN_DEPTH + height + bumpSize * 0.5, z);
-            bump.rotation.set(
-                Math.PI / 2 + Math.random() * 0.2 - 0.1,
-                Math.random() * Math.PI * 2,
-                0
+            const additionalLight = new THREE.SpotLight(0xFFFFFF, 1.5);
+            additionalLight.position.set(
+                offsetX, 
+                -OCEAN_DEPTH + 120, 
+                offsetZ
             );
-            bump.scale.set(1, 0.3, 1); // Flatten the bump
+            additionalLight.target.position.set(
+                offsetX * 0.5, 
+                -OCEAN_DEPTH, 
+                offsetZ * 0.5
+            );
+            additionalLight.angle = Math.PI / 4;
+            additionalLight.penumbra = 0.7;
+            additionalLight.decay = 1.0;
+            additionalLight.distance = 400;
+            additionalLight.castShadow = true;
+            additionalLight.shadow.mapSize.width = 1024;
+            additionalLight.shadow.mapSize.height = 1024;
             
-            game.scene.add(bump);
+            game.scene.add(additionalLight);
+            game.scene.add(additionalLight.target);
         }
         
-        // Add sand ripple patterns
-        for (let i = 0; i < 300; i++) {
-            const rippleWidth = Math.random() * 20 + 10;
-            const rippleDepth = Math.random() * 5 + 2;
-            
-            const rippleGeometry = new THREE.PlaneGeometry(rippleWidth, rippleDepth, 1, 1);
-            const rippleMaterial = new THREE.MeshStandardMaterial({
-                color: 0xD2B48C, // Tan color for ripples
-                roughness: 1.0,
-                metalness: 0.0,
-                side: THREE.DoubleSide
-            });
-            
-            const ripple = new THREE.Mesh(rippleGeometry, rippleMaterial);
-            
-            // Position ripples randomly on ocean floor
-            const x = Math.random() * WORLD_SIZE * 1.5 - WORLD_SIZE * 0.75;
-            const z = Math.random() * WORLD_SIZE * 1.5 - WORLD_SIZE * 0.75;
-            
-            ripple.position.set(x, -OCEAN_DEPTH + 0.5, z);
-            ripple.rotation.set(
-                Math.PI / 2 + (Math.random() * 0.2 - 0.1),
-                Math.random() * Math.PI * 2,
-                0
-            );
-            
-            game.scene.add(ripple);
-        }
+        // Add a strong ambient light at the floor level to ensure it's well-lit
+        const floorAmbientLight = new THREE.AmbientLight(0xFFFFFF, 0.8); // Brighter ambient light
+        floorAmbientLight.position.set(0, -OCEAN_DEPTH + 50, 0);
+        game.scene.add(floorAmbientLight);
         
-        // Add some larger sand dunes for extra detail - make them more prominent
-        for (let i = 0; i < 60; i++) {
-            const duneGeometry = new THREE.SphereGeometry(
-                Math.random() * 40 + 30, // Larger size
-                8, 8, // Segments
-                0, Math.PI * 2, 
-                0, Math.PI / 2 // Half sphere
-            );
-            
-            const duneMaterial = new THREE.MeshStandardMaterial({
-                color: 0xEEDFCC, // Slightly different sand color
-                roughness: 1.0,
-                metalness: 0.0,
-                flatShading: true
-            });
-            
-            const dune = new THREE.Mesh(duneGeometry, duneMaterial);
-            
-            // Position dunes randomly on ocean floor
-            const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            
-            dune.position.set(x, -OCEAN_DEPTH + 2, z);
-            dune.rotation.set(
-                Math.PI / 2 + Math.random() * 0.2 - 0.1,
-                Math.random() * Math.PI * 2,
-                0
-            );
-            dune.scale.set(1, 0.25, 1); // Flatten the dune more
-            
-            game.scene.add(dune);
-        }
+        // Create large rocks (collidable obstacles only)
+        createLargerObstacles();
         
-        // Add some scattered shells and small rocks with more contrast
-        for (let i = 0; i < 200; i++) {
-            let geometry, material, scale;
-            
-            if (Math.random() > 0.6) {
-                // Shell
-                geometry = new THREE.TorusGeometry(2, 1, 8, 12, Math.PI);
-                material = new THREE.MeshStandardMaterial({
-                    color: Math.random() > 0.5 ? 0xFFFAF0 : 0xFFE4C4, // Shell colors
-                    roughness: 0.7,
-                    metalness: 0.3,
-                    emissive: 0xFFE4C4,
-                    emissiveIntensity: 0.1
-                });
-                scale = Math.random() * 0.8 + 0.5; // Larger shells
-            } else {
-                // Small rock
-                geometry = new THREE.DodecahedronGeometry(2, 0);
-                material = new THREE.MeshStandardMaterial({
-                    color: 0x808080, // Gray
-                    roughness: 0.9,
-                    metalness: 0.1
-                });
-                scale = Math.random() * 1.0 + 0.5; // Larger rocks
-            }
-            
-            const object = new THREE.Mesh(geometry, material);
-            
-            // Position objects randomly on ocean floor
-            const x = Math.random() * WORLD_SIZE * 1.5 - WORLD_SIZE * 0.75;
-            const z = Math.random() * WORLD_SIZE * 1.5 - WORLD_SIZE * 0.75;
-            
-            object.position.set(x, -OCEAN_DEPTH + 2, z);
-            object.rotation.set(
-                Math.random() * Math.PI,
-                Math.random() * Math.PI,
-                Math.random() * Math.PI
-            );
-            object.scale.set(scale, scale, scale);
-            
-            game.scene.add(object);
-        }
-        
-        // Add some starfish for color contrast
-        for (let i = 0; i < 40; i++) {
-            const starfishGeometry = new THREE.CircleGeometry(5, 5);
-            
-            // Bright starfish colors
-            const starfishColors = [0xFF4500, 0xFF6347, 0xFF7F50, 0xFFA07A];
-            const starfishColor = starfishColors[Math.floor(Math.random() * starfishColors.length)];
-            
-            const starfishMaterial = new THREE.MeshStandardMaterial({
-                color: starfishColor,
-                roughness: 0.8,
-                metalness: 0.2,
-                emissive: starfishColor,
-                emissiveIntensity: 0.2,
-                side: THREE.DoubleSide
-            });
-            
-            const starfish = new THREE.Mesh(starfishGeometry, starfishMaterial);
-            
-            // Position starfish on ocean floor
-            const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            
-            starfish.position.set(x, -OCEAN_DEPTH + 1, z);
-            starfish.rotation.set(
-                Math.PI / 2 + (Math.random() * 0.3 - 0.15),
-                0,
-                Math.random() * Math.PI * 2
-            );
-            
-            game.scene.add(starfish);
-        }
-        
-        debug('Ocean floor created');
+        debug('Realistic sandy ocean floor created');
     } catch (error) {
         console.error('Error in createOceanFloor:', error);
     }
+}
+
+// Create larger collidable obstacles
+function createLargerObstacles() {
+    // Add large rocks that the submarine can't pass through
+    for (let i = 0; i < 40; i++) { // Increased rock count
+        // Create rock with random size
+        const rockSize = Math.random() * 20 + 15;
+        const rockGeometry = new THREE.DodecahedronGeometry(rockSize, 1);
+        
+        // Different rock colors and textures
+        const rockMaterial = new THREE.MeshStandardMaterial({
+            color: Math.random() > 0.5 ? 0x808080 : 0x707070, // Gray variations
+            roughness: 0.9,
+            metalness: 0.1,
+            flatShading: true
+        });
+        
+        const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+        
+        // Position rocks randomly on ocean floor
+        const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
+        const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
+        
+        rock.position.set(x, -OCEAN_DEPTH + rockSize/2 - 5, z);
+        rock.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+        );
+        
+        // Give rocks slight deformation for more natural look
+        rock.scale.set(
+            1 + Math.random() * 0.3 - 0.15,
+            1 + Math.random() * 0.3 - 0.15,
+            1 + Math.random() * 0.3 - 0.15
+        );
+        
+        rock.castShadow = true;
+        rock.receiveShadow = true;
+        
+        // Add collision data with increased radius for better collision detection
+        rock.userData.isObstacle = true;
+        rock.userData.collisionRadius = rockSize * 1.5; // Increased from 1.2 to 1.5
+        
+        game.scene.add(rock);
+        game.collisionObjects.push(rock);
+    }
+    
+    // We've removed the columns/ruins creation code as requested
 }
 
 // Create submarine model
 function createSubmarine() {
     debug('Creating submarine');
     try {
-        // Create submarine model (using cylinder instead of capsule)
-        const bodyGeometry = new THREE.CylinderGeometry(2, 2, 6, 16);
-        // Bright yellow submarine
-        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
-        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        body.rotation.z = Math.PI / 2;
+        // Create a more streamlined military-style submarine
         
-        // Add rounded ends to simulate capsule
-        const endCapGeometry1 = new THREE.SphereGeometry(2, 16, 16);
-        const endCapGeometry2 = new THREE.SphereGeometry(2, 16, 16);
-        const endCap1 = new THREE.Mesh(endCapGeometry1, bodyMaterial);
-        const endCap2 = new THREE.Mesh(endCapGeometry2, bodyMaterial);
-        endCap1.position.set(3, 0, 0);
-        endCap2.position.set(-3, 0, 0);
-        
-        // Create submarine window - move to front of submarine
-        const windowGeometry = new THREE.SphereGeometry(0.8, 16, 16);
-        const windowMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x87CEFA,
-            transparent: true,
-            opacity: 0.7
-        });
-        const window = new THREE.Mesh(windowGeometry, windowMaterial);
-        window.position.x = 3; // Move to front end
-        window.position.y = 0.5;
-        
-        // Create submarine propeller - move to back of submarine
-        const propellerGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.2);
-        const propellerMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
-        const propeller = new THREE.Mesh(propellerGeometry, propellerMaterial);
-        propeller.position.x = -3.5; // Move to back end
-        
-        // Create submarine fins
-        const finGeometry = new THREE.BoxGeometry(2, 0.2, 1);
-        const finMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 });
-        
-        const topFin = new THREE.Mesh(finGeometry, finMaterial);
-        topFin.position.y = 2;
-        
-        const bottomFin = new THREE.Mesh(finGeometry, finMaterial);
-        bottomFin.position.y = -2;
-        
-        const sideFin = new THREE.Mesh(finGeometry, finMaterial);
-        sideFin.rotation.z = Math.PI / 2;
-        sideFin.position.z = 2;
-        
-        const sideFin2 = new THREE.Mesh(finGeometry, finMaterial);
-        sideFin2.rotation.z = Math.PI / 2;
-        sideFin2.position.z = -2;
-        
-        // Create submarine group
+        // Create a submarine group
         const submarine = new THREE.Group();
-        submarine.add(body);
-        submarine.add(endCap1);
-        submarine.add(endCap2);
-        submarine.add(window);
-        submarine.add(propeller);
-        submarine.add(topFin);
-        submarine.add(bottomFin);
-        submarine.add(sideFin);
-        submarine.add(sideFin2);
+        
+        // --- MAIN HULL (longer and more streamlined) ---
+        const hullLength = 25; // Increased length
+        const hullRadius = 2;
+        
+        // Main pressure hull
+        const mainHullMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x2C3539, // Dark naval gray
+            metalness: 0.6,
+            roughness: 0.4
+        });
+        
+        // Main pressure hull (middle section)
+        const mainHullGeometry = new THREE.CylinderGeometry(hullRadius, hullRadius, hullLength * 0.7, 32);
+        const mainHull = new THREE.Mesh(mainHullGeometry, mainHullMaterial);
+        mainHull.rotation.x = Math.PI / 2; // Align with Z-axis
+        
+        // Forward hull section (tapered)
+        const forwardHullGeometry = new THREE.CylinderGeometry(hullRadius, hullRadius * 0.6, hullLength * 0.2, 32);
+        const forwardHull = new THREE.Mesh(forwardHullGeometry, mainHullMaterial);
+        forwardHull.rotation.x = Math.PI / 2;
+        forwardHull.position.z = hullLength * 0.43;
+        
+        // Bow section (pointed)
+        const bowGeometry = new THREE.ConeGeometry(hullRadius * 0.6, hullLength * 0.1, 32);
+        const bow = new THREE.Mesh(bowGeometry, mainHullMaterial);
+        bow.rotation.x = -Math.PI / 2;
+        bow.position.z = hullLength * 0.58;
+        
+        // Aft hull section (tapered)
+        const aftHullGeometry = new THREE.CylinderGeometry(hullRadius * 0.75, hullRadius, hullLength * 0.15, 32);
+        const aftHull = new THREE.Mesh(aftHullGeometry, mainHullMaterial);
+        aftHull.rotation.x = Math.PI / 2;
+        aftHull.position.z = -hullLength * 0.42;
+        
+        // Stern section (rounded)
+        const sternGeometry = new THREE.SphereGeometry(hullRadius * 0.75, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+        const stern = new THREE.Mesh(sternGeometry, mainHullMaterial);
+        stern.rotation.x = Math.PI;
+        stern.position.z = -hullLength * 0.5;
+        
+        // --- SIMPLIFIED CONNING TOWER (SAIL) ---
+        const towerMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x1C2529, // Slightly darker than hull
+            metalness: 0.6,
+            roughness: 0.3
+        });
+        
+        // Streamlined sail shape
+        const sailGeometry = new THREE.BoxGeometry(2, 3, 7);
+        const sail = new THREE.Mesh(sailGeometry, towerMaterial);
+        sail.position.y = hullRadius + 1.5;
+        
+        // Rounded front of sail
+        const sailFrontGeometry = new THREE.CylinderGeometry(1, 1, 3, 16, 1, false, -Math.PI/2, Math.PI);
+        const sailFront = new THREE.Mesh(sailFrontGeometry, towerMaterial);
+        sailFront.rotation.x = Math.PI / 2;
+        sailFront.position.y = hullRadius + 1.5;
+        sailFront.position.z = 3.5;
+        
+        // Single periscope
+        const periscopeMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x111111,
+            metalness: 0.8,
+            roughness: 0.2
+        });
+        
+        const periscopeGeometry = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
+        const periscope = new THREE.Mesh(periscopeGeometry, periscopeMaterial);
+        periscope.position.y = hullRadius + 4;
+        periscope.position.z = 2;
+        
+        // --- SIMPLIFIED CONTROL SURFACES ---
+        const controlSurfaceMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x1C2529,
+            metalness: 0.5,
+            roughness: 0.5
+        });
+        
+        // Forward dive planes
+        const bowPlaneGeometry = new THREE.BoxGeometry(5, 0.3, 1.2);
+        const bowPlaneLeft = new THREE.Mesh(bowPlaneGeometry, controlSurfaceMaterial);
+        bowPlaneLeft.position.x = -2.5;
+        bowPlaneLeft.position.z = hullLength * 0.3;
+        
+        const bowPlaneRight = new THREE.Mesh(bowPlaneGeometry, controlSurfaceMaterial);
+        bowPlaneRight.position.x = 2.5;
+        bowPlaneRight.position.z = hullLength * 0.3;
+        
+        // Stern planes
+        const sternPlaneGeometry = new THREE.BoxGeometry(6, 0.3, 1.5);
+        const sternPlaneLeft = new THREE.Mesh(sternPlaneGeometry, controlSurfaceMaterial);
+        sternPlaneLeft.position.x = -3;
+        sternPlaneLeft.position.z = -hullLength * 0.3;
+        
+        const sternPlaneRight = new THREE.Mesh(sternPlaneGeometry, controlSurfaceMaterial);
+        sternPlaneRight.position.x = 3;
+        sternPlaneRight.position.z = -hullLength * 0.3;
+        
+        // Single rudder (simplified)
+        const rudderGeometry = new THREE.BoxGeometry(0.3, 3, 2);
+        const rudder = new THREE.Mesh(rudderGeometry, controlSurfaceMaterial);
+        rudder.position.y = 0;
+        rudder.position.z = -hullLength * 0.45;
+        
+        // --- PROPELLER (simplified) ---
+        const propellerMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xC88A3A, // Bronze color
+            metalness: 0.8,
+            roughness: 0.2
+        });
+        
+        // Propeller hub
+        const propHubGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.6, 16);
+        const propHub = new THREE.Mesh(propHubGeometry, propellerMaterial);
+        propHub.rotation.x = Math.PI / 2;
+        propHub.position.z = -hullLength * 0.5 - 0.7;
+        
+        // Simplified propeller blades
+        for (let i = 0; i < 5; i++) {
+            const bladeGeometry = new THREE.BoxGeometry(0.2, 1.5, 0.1);
+            const blade = new THREE.Mesh(bladeGeometry, propellerMaterial);
+            blade.position.z = -0.1;
+            blade.rotation.z = (Math.PI * 2 / 5) * i;
+            propHub.add(blade);
+        }
+        
+        // --- WINDOWS ---
+        const windowMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x3A75C4, 
+            transparent: true,
+            opacity: 0.7,
+            emissive: 0x3A75C4,
+            emissiveIntensity: 0.3
+        });
+        
+        // Just 2 windows on the sail
+        for (let i = 0; i < 2; i++) {
+            const windowGeometry = new THREE.BoxGeometry(0.5, 0.3, 0.1);
+            const windowPane = new THREE.Mesh(windowGeometry, windowMaterial);
+            windowPane.position.z = 3.5;
+            windowPane.position.y = hullRadius + 1.8;
+            windowPane.position.x = i * 0.7 - 0.3;
+            sail.add(windowPane);
+        }
+        
+        // --- Add all components to submarine group ---
+        submarine.add(mainHull);
+        submarine.add(forwardHull);
+        submarine.add(bow);
+        submarine.add(aftHull);
+        submarine.add(stern);
+        submarine.add(sail);
+        submarine.add(sailFront);
+        submarine.add(periscope);
+        submarine.add(bowPlaneLeft);
+        submarine.add(bowPlaneRight);
+        submarine.add(sternPlaneLeft);
+        submarine.add(sternPlaneRight);
+        submarine.add(rudder);
+        submarine.add(propHub);
+        
+        // Just a few subtle weathering effects
+        for (let i = 0; i < 8; i++) {
+            const weatheringSize = Math.random() * 2 + 1;
+            const weatheringGeometry = new THREE.CircleGeometry(weatheringSize, 8);
+            const weatheringMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x202020, 
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide
+            });
+            
+            const weatheringMark = new THREE.Mesh(weatheringGeometry, weatheringMaterial);
+            
+            // Position randomly on hull
+            const angle = Math.random() * Math.PI * 2;
+            const heightPos = Math.random() * hullLength - hullLength / 2;
+            
+            weatheringMark.position.x = Math.cos(angle) * hullRadius;
+            weatheringMark.position.y = Math.sin(angle) * hullRadius;
+            weatheringMark.position.z = heightPos;
+            
+            // Align with hull surface
+            weatheringMark.lookAt(weatheringMark.position.clone().add(
+                new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0)
+            ));
+            
+            submarine.add(weatheringMark);
+        }
         
         // Add submarine to scene
         game.scene.add(submarine);
@@ -620,351 +719,20 @@ function createSubmarine() {
         
         // Position submarine and set initial rotation
         submarine.position.set(0, 0, 0);
-        submarine.rotation.y = Math.PI; // Rotates submarine to face into the negative Z direction (forward)
+        submarine.rotation.y = 0; // Submarine directly faces into screen
         
         // Add propeller animation
         const animatePropeller = () => {
             if (!game.gameOver) {
-                propeller.rotation.x += 0.1;
+                propHub.rotation.z += 0.1;
                 requestAnimationFrame(animatePropeller);
             }
         };
         
         animatePropeller();
-        debug('Submarine created');
+        debug('Streamlined submarine created');
     } catch (error) {
         console.error('Error in createSubmarine:', error);
-    }
-}
-
-// Create underwater environment
-function createEnvironment() {
-    debug('Creating environment');
-    try {
-        // Create coral formations
-        for (let i = 0; i < 30; i++) {
-            const size = Math.random() * 10 + 5;
-            // Use different geometry for coral
-            const coralGeometry = Math.random() > 0.5 ? 
-                new THREE.DodecahedronGeometry(size, 0) : 
-                new THREE.TorusKnotGeometry(size/2, size/4, 64, 8);
-            
-            // Bright coral colors
-            const coralColors = [0xFF6F61, 0xFF00FF, 0xFFA500, 0xFF69B4, 0xFFD700];
-            const coralColor = coralColors[Math.floor(Math.random() * coralColors.length)];
-            
-            const coralMaterial = new THREE.MeshStandardMaterial({ 
-                color: coralColor,
-                roughness: 0.8,
-                metalness: 0.2
-            });
-            
-            const coral = new THREE.Mesh(coralGeometry, coralMaterial);
-            
-            // Position coral randomly on ocean floor
-            const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            const y = -OCEAN_DEPTH + size / 2 + Math.random() * 10;
-            
-            coral.position.set(x, y, z);
-            coral.rotation.set(
-                Math.random() * Math.PI,
-                Math.random() * Math.PI,
-                Math.random() * Math.PI
-            );
-            
-            game.scene.add(coral);
-            game.seaObjects.push(coral);
-        }
-        
-        // Create seaweed/kelp
-        for (let i = 0; i < 40; i++) {
-            const height = Math.random() * 30 + 20;
-            const segments = Math.floor(height / 5);
-            
-            const seaweedGeometry = new THREE.CylinderGeometry(0.5, 0.1, height, 8, segments, true);
-            // Brighter green for seaweed
-            const seaweedMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0x00FF7F,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.9
-            });
-            
-            // Bend the seaweed by moving vertices
-            const vertices = seaweedGeometry.attributes.position.array;
-            for (let j = 0; j < vertices.length; j += 3) {
-                const y = vertices[j + 1];
-                const bendFactor = (y + height / 2) / height; // 0 at bottom, 1 at top
-                vertices[j] += Math.sin(bendFactor * Math.PI) * 2;
-            }
-            
-            seaweedGeometry.attributes.position.needsUpdate = true;
-            
-            const seaweed = new THREE.Mesh(seaweedGeometry, seaweedMaterial);
-            
-            // Position seaweed randomly on ocean floor
-            const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            const y = -OCEAN_DEPTH + height / 2;
-            
-            seaweed.position.set(x, y, z);
-            
-            game.scene.add(seaweed);
-            game.seaObjects.push(seaweed);
-        }
-        
-        // Add tropical fish
-        for (let i = 0; i < 50; i++) {
-            createTropicalFish();
-        }
-        
-        debug('Environment created');
-    } catch (error) {
-        console.error('Error in createEnvironment:', error);
-    }
-}
-
-// Create tropical fish
-function createTropicalFish() {
-    try {
-        // Fish body
-        const bodySize = Math.random() * 2 + 1;
-        const bodyGeometry = new THREE.ConeGeometry(bodySize, bodySize * 3, 8);
-        
-        // Bright fish colors
-        const fishColors = [0xFF6347, 0x4169E1, 0xFFFF00, 0xFF00FF, 0x00FFFF, 0x32CD32];
-        const fishColor = fishColors[Math.floor(Math.random() * fishColors.length)];
-        
-        const fishMaterial = new THREE.MeshStandardMaterial({
-            color: fishColor,
-            metalness: 0.3,
-            roughness: 0.6
-        });
-        
-        const fishBody = new THREE.Mesh(bodyGeometry, fishMaterial);
-        fishBody.rotation.z = Math.PI / 2;
-        
-        // Fish tail
-        const tailGeometry = new THREE.ConeGeometry(bodySize * 1.2, bodySize * 1.5, 4);
-        const tail = new THREE.Mesh(tailGeometry, fishMaterial);
-        tail.position.x = -bodySize * 1.5;
-        tail.rotation.z = Math.PI / 2;
-        tail.scale.y = 0.5;
-        
-        // Create fish group
-        const fish = new THREE.Group();
-        fish.add(fishBody);
-        fish.add(tail);
-        
-        // Position fish randomly in water
-        const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-        const y = -(Math.random() * (OCEAN_DEPTH - 50)) - 20; // Keep fish away from surface
-        const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-        
-        fish.position.set(x, y, z);
-        fish.rotation.y = Math.random() * Math.PI * 2;
-        
-        // Add movement properties
-        fish.userData = {
-            speed: Math.random() * 0.2 + 0.1,
-            turnSpeed: Math.random() * 0.02 - 0.01,
-            timeOffset: Math.random() * 1000
-        };
-        
-        game.scene.add(fish);
-        game.seaObjects.push(fish);
-    } catch (error) {
-        console.error('Error in createTropicalFish:', error);
-    }
-}
-
-// Create treasure
-function createTreasure() {
-    try {
-        const treasureTypes = ['gold', 'silver', 'gem'];
-        const type = treasureTypes[Math.floor(Math.random() * treasureTypes.length)];
-        
-        let value;
-        let color;
-        let geometry;
-        
-        switch(type) {
-            case 'gold':
-                value = 100;
-                color = 0xFFD700;
-                geometry = new THREE.TorusGeometry(2, 0.5, 16, 32);
-                break;
-            case 'silver':
-                value = 50;
-                color = 0xC0C0C0;
-                geometry = new THREE.CylinderGeometry(2, 2, 0.5, 32);
-                break;
-            case 'gem':
-                value = 200;
-                color = 0x00FFFF;
-                geometry = new THREE.OctahedronGeometry(2, 0);
-                break;
-        }
-        
-        const material = new THREE.MeshStandardMaterial({
-            color: color,
-            metalness: 0.8,
-            roughness: 0.2,
-            emissive: color,
-            emissiveIntensity: 0.2
-        });
-        
-        const treasure = new THREE.Mesh(geometry, material);
-        
-        // Position treasure randomly in the ocean
-        const x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-        const z = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-        const y = -(Math.random() * OCEAN_DEPTH * 0.8);
-        
-        treasure.position.set(x, y, z);
-        
-        // Add treasure to scene and game state
-        game.scene.add(treasure);
-        game.treasures.push({
-            object: treasure,
-            type: type,
-            value: value,
-            rotationSpeed: new THREE.Vector3(
-                Math.random() * 0.02,
-                Math.random() * 0.02,
-                Math.random() * 0.02
-            )
-        });
-    } catch (error) {
-        console.error('Error in createTreasure:', error);
-    }
-}
-
-// Check collision between submarine and treasure
-function checkTreasureCollision() {
-    try {
-        if (!game.submarine.object) return;
-        
-        const subPosition = game.submarine.object.position;
-        const collisionDistance = 5; // Distance for collision detection
-        
-        game.treasures.forEach((treasure, index) => {
-            const distance = subPosition.distanceTo(treasure.object.position);
-            
-            if (distance < collisionDistance) {
-                // Add to score
-                game.score += treasure.value;
-                
-                // Update score display
-                document.getElementById('score-value').textContent = game.score;
-                
-                // Remove collected treasure
-                game.scene.remove(treasure.object);
-                game.treasures.splice(index, 1);
-            }
-        });
-    } catch (error) {
-        console.error('Error in checkTreasureCollision:', error);
-    }
-}
-
-// Show game over screen
-function showGameOver() {
-    try {
-        // Create game over screen if it doesn't exist
-        let gameOverScreen = document.getElementById('game-over');
-        
-        if (!gameOverScreen) {
-            gameOverScreen = document.createElement('div');
-            gameOverScreen.id = 'game-over';
-            gameOverScreen.className = 'game-over';
-            
-            const gameOverContent = `
-                <h2>Game Over</h2>
-                <p>Your adventure has ended!</p>
-                <p>Final Score: <span id="final-score">${game.score}</span></p>
-                <button id="restart-button">Restart Game</button>
-                <p class="restart-hint">Or press 'R' to restart</p>
-            `;
-            
-            gameOverScreen.innerHTML = gameOverContent;
-            document.querySelector('.game-container').appendChild(gameOverScreen);
-            
-            // Add event listener to restart button
-            document.getElementById('restart-button').addEventListener('click', initGame);
-        } else {
-            // Update final score
-            document.getElementById('final-score').textContent = game.score;
-            gameOverScreen.style.display = 'flex';
-        }
-    } catch (error) {
-        console.error('Error in showGameOver:', error);
-    }
-}
-
-// Initialize game
-function initGame() {
-    debug('Initializing game');
-    try {
-        // Clear previous game state
-        if (game.scene) {
-            // Remove all objects from scene
-            while (game.scene.children.length > 0) {
-                game.scene.remove(game.scene.children[0]);
-            }
-        }
-        
-        // Reset game state
-        game.submarine.position = new THREE.Vector3(0, 0, 0);
-        game.submarine.rotation = new THREE.Euler(0, 0, 0);
-        game.submarine.velocity = new THREE.Vector3(0, 0, 0);
-        game.submarine.depth = 0;
-        game.treasures = [];
-        game.seaObjects = [];
-        game.score = 0;
-        game.gameOver = false;
-        
-        // Update UI
-        document.getElementById('score-value').textContent = game.score;
-        document.getElementById('depth-value').textContent = game.depth;
-        
-        // Hide game over screen if visible
-        const gameOverScreen = document.getElementById('game-over');
-        if (gameOverScreen) {
-            gameOverScreen.style.display = 'none';
-        }
-        
-        // Initialize scene if first time
-        if (!game.scene) {
-            initScene();
-        }
-        
-        // Create environment
-        createWaterSurface();
-        createOceanFloor();
-        createSubmarine();
-        createEnvironment();
-        createClouds();
-        
-        // Create initial treasures
-        for (let i = 0; i < 5; i++) {
-            createTreasure();
-        }
-        
-        // Start game loop
-        if (!game.clock.running) {
-            game.clock.start();
-        } else {
-            game.clock.elapsedTime = 0;
-        }
-        
-        // Start animation
-        animate();
-        debug('Game initialized');
-    } catch (error) {
-        console.error('Error in initGame:', error);
-        alert('Error initializing game: ' + error.message);
     }
 }
 
@@ -994,6 +762,9 @@ function update(deltaTime) {
         
         const sub = game.submarine;
         if (!sub.object) return;
+        
+        // Store previous position for collision detection
+        const previousPosition = sub.object.position.clone();
         
         // COMPLETELY REWRITTEN CONTROL SYSTEM
         // ===================================
@@ -1073,6 +844,78 @@ function update(deltaTime) {
             sub.object.position.y = -OCEAN_DEPTH + 10;
         }
         
+        // IMPROVED COLLISION DETECTION SYSTEM
+        // =================================== 
+        // Use multiple collision points for more accurate detection
+        const hullLength = 25; // Length of submarine (from createSubmarine function)
+        const subCollisionRadius = 12; // Increased collision radius to ensure no penetration
+        let collisionDetected = false;
+        let maxPenetration = 0;
+        let strongestRepulsion = null;
+        
+        // Define collision check points along the submarine hull
+        const collisionPoints = [
+            // Center point
+            sub.object.position.clone(),
+            // Front point (bow)
+            sub.object.position.clone().addScaledVector(forwardDirection, hullLength * 0.5),
+            // Back point (stern)
+            sub.object.position.clone().addScaledVector(forwardDirection, -hullLength * 0.5),
+            // Top point (conning tower)
+            sub.object.position.clone().add(new THREE.Vector3(0, 3, 0)),
+            // Left point (port side)
+            sub.object.position.clone().add(new THREE.Vector3(-3, 0, 0).applyQuaternion(sub.object.quaternion)),
+            // Right point (starboard side)
+            sub.object.position.clone().add(new THREE.Vector3(3, 0, 0).applyQuaternion(sub.object.quaternion))
+        ];
+        
+        // Check each obstacle against all collision points
+        for (const obstacle of game.collisionObjects) {
+            if (obstacle.userData && obstacle.userData.isObstacle) {
+                const obstacleWorldPos = new THREE.Vector3();
+                obstacle.getWorldPosition(obstacleWorldPos);
+                
+                // Check each collision point
+                for (const point of collisionPoints) {
+                    const distance = point.distanceTo(obstacleWorldPos);
+                    const minDistance = 2 + obstacle.userData.collisionRadius; // Smaller point radius
+                    
+                    if (distance < minDistance) {
+                        // Calculate penetration depth
+                        const penetration = minDistance - distance;
+                        
+                        if (penetration > maxPenetration) {
+                            maxPenetration = penetration;
+                            
+                            // Get direction away from obstacle
+                            const repulsionDirection = new THREE.Vector3()
+                                .subVectors(point, obstacleWorldPos)
+                                .normalize();
+                            
+                            // Store strongest repulsion
+                            strongestRepulsion = {
+                                direction: repulsionDirection,
+                                strength: penetration * 1.5 // Stronger repulsion factor
+                            };
+                        }
+                        
+                        collisionDetected = true;
+                    }
+                }
+            }
+        }
+        
+        // Apply repulsion if collision detected
+        if (collisionDetected) {
+            if (strongestRepulsion) {
+                // Apply very strong repulsion force
+                sub.object.position.addScaledVector(strongestRepulsion.direction, strongestRepulsion.strength);
+            } else {
+                // Fallback to previous position if no valid repulsion found
+                sub.object.position.copy(previousPosition);
+            }
+        }
+        
         // Update camera position to follow submarine
         updateCamera();
         
@@ -1080,81 +923,6 @@ function update(deltaTime) {
         sub.depth = Math.max(0, Math.floor(-sub.object.position.y));
         document.getElementById('depth-value').textContent = sub.depth;
         
-        // Spawn treasures
-        if (Math.random() < TREASURE_SPAWN_RATE * deltaTime && !game.gameOver) {
-            createTreasure();
-        }
-        
-        // Update treasures
-        game.treasures.forEach(treasure => {
-            // Rotate treasures
-            treasure.object.rotation.x += treasure.rotationSpeed.x;
-            treasure.object.rotation.y += treasure.rotationSpeed.y;
-            treasure.object.rotation.z += treasure.rotationSpeed.z;
-            
-            // Make treasures float slightly
-            treasure.object.position.y += Math.sin(game.clock.elapsedTime + treasure.object.position.x) * 0.01;
-        });
-        
-        // Animate fish and clouds
-        game.seaObjects.forEach(object => {
-            // Check if object is a fish (has userData with speed property)
-            if (object.userData && object.userData.speed) {
-                // Check if it's a cloud (has direction property)
-                if (object.userData.direction) {
-                    // Move clouds
-                    object.position.addScaledVector(object.userData.direction, object.userData.speed);
-                    
-                    // Wrap clouds around when they go too far
-                    const cloudLimit = WORLD_SIZE;
-                    if (object.position.x > cloudLimit) object.position.x = -cloudLimit;
-                    if (object.position.x < -cloudLimit) object.position.x = cloudLimit;
-                    if (object.position.z > cloudLimit) object.position.z = -cloudLimit;
-                    if (object.position.z < -cloudLimit) object.position.z = cloudLimit;
-                } else {
-                    // It's a fish
-                    // Move fish forward in the direction they're facing
-                    const fishForwardDirection = new THREE.Vector3(0, 0, -1);
-                    fishForwardDirection.applyQuaternion(object.quaternion);
-                    object.position.addScaledVector(fishForwardDirection, object.userData.speed);
-                    
-                    // Make fish swim in a wavy pattern
-                    object.rotation.y += object.userData.turnSpeed;
-                    
-                    // Make fish move up and down slightly
-                    object.position.y += Math.sin(game.clock.elapsedTime + object.userData.timeOffset) * 0.02;
-                    
-                    // Boundary check - if fish hits boundary, turn it around
-                    if (
-                        object.position.x > boundaryLimit || 
-                        object.position.x < -boundaryLimit ||
-                        object.position.z > boundaryLimit || 
-                        object.position.z < -boundaryLimit
-                    ) {
-                        // Turn fish around
-                        object.rotation.y += Math.PI;
-                        // Move fish away from boundary
-                        object.position.addScaledVector(fishForwardDirection, -10);
-                    }
-                    
-                    // Make sure fish don't go above water or below ocean floor
-                    if (object.position.y > -5) {
-                        object.position.y = -5;
-                    } else if (object.position.y < -OCEAN_DEPTH + 5) {
-                        object.position.y = -OCEAN_DEPTH + 5;
-                    }
-                    
-                    // Animate fish tail
-                    if (object.children.length > 1) {
-                        const tail = object.children[1];
-                        tail.rotation.y = Math.sin(game.clock.elapsedTime * 5 + object.userData.timeOffset) * 0.5;
-                    }
-                }
-            }
-        });
-        
-        // Check for treasure collisions
-        checkTreasureCollision();
     } catch (error) {
         console.error('Error in update:', error);
     }
@@ -1191,6 +959,60 @@ function updateCamera() {
         game.camera.main.lookAt(lookAtPosition);
     } catch (error) {
         console.error('Error in updateCamera:', error);
+    }
+}
+
+// Initialize game
+function initGame() {
+    debug('Initializing game');
+    try {
+        // Clear previous game state
+        if (game.scene) {
+            // Remove all objects from scene
+            while (game.scene.children.length > 0) {
+                game.scene.remove(game.scene.children[0]);
+            }
+        }
+        
+        // Reset game state
+        game.submarine.position = new THREE.Vector3(0, 0, 0);
+        game.submarine.rotation = new THREE.Euler(0, 0, 0);
+        game.submarine.velocity = new THREE.Vector3(0, 0, 0);
+        game.submarine.depth = 0;
+        game.gameOver = false;
+        
+        // Update UI
+        document.getElementById('depth-value').textContent = game.depth;
+        
+        // Hide score display since we've removed scoring
+        const scoreDisplay = document.querySelector('.score-display');
+        if (scoreDisplay) {
+            scoreDisplay.style.display = 'none';
+        }
+        
+        // Initialize scene if first time
+        if (!game.scene) {
+            initScene();
+        }
+        
+        // Create environment
+        createWaterSurface();
+        createOceanFloor();
+        createSubmarine();
+        
+        // Start game loop
+        if (!game.clock.running) {
+            game.clock.start();
+        } else {
+            game.clock.elapsedTime = 0;
+        }
+        
+        // Start animation
+        animate();
+        debug('Game initialized');
+    } catch (error) {
+        console.error('Error in initGame:', error);
+        alert('Error initializing game: ' + error.message);
     }
 }
 
