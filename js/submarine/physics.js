@@ -61,7 +61,7 @@ export function updateSubmarinePhysics(deltaTime) {
         applyWorldBoundaries(sub.object);
         
         // Apply buoyancy and depth physics
-        applyBuoyancyAndDepth(sub);
+        applyBuoyancyAndDepth(sub, deltaTime);
         
         // Check for surface transitions (entering/exiting water)
         checkSurfaceTransitions(sub);
@@ -83,7 +83,7 @@ function applyWorldBoundaries(submarineObj) {
 }
 
 // Apply buoyancy and depth-related physics
-function applyBuoyancyAndDepth(sub) {
+function applyBuoyancyAndDepth(sub, deltaTime) {
     // Buoyancy near the surface is stronger
     if (sub.object.position.y < 0 && sub.object.position.y > -5) {
         sub.object.position.y += 0.05; // Strong buoyancy near surface
@@ -91,9 +91,21 @@ function applyBuoyancyAndDepth(sub) {
         sub.object.position.y += 0.02; // Weaker buoyancy deeper
     }
     
-    // Apply gravity when above water
+    // Apply gravity when above water - quadratic model
     if (sub.isAirborne) {
-        sub.object.position.y -= GRAVITY;
+        // Initialize fallingVelocity if not already set
+        if (sub.fallingVelocity === undefined) {
+            sub.fallingVelocity = 0;
+        }
+        
+        // Apply gravity acceleration to the velocity
+        sub.fallingVelocity += GRAVITY * deltaTime;
+        
+        // Apply velocity to position
+        sub.object.position.y -= sub.fallingVelocity;
+    } else {
+        // Reset falling velocity when in water
+        sub.fallingVelocity = 0;
     }
     
     // Ocean floor boundary
@@ -115,9 +127,15 @@ function checkSurfaceTransitions(sub) {
     if (wasAirborne && !sub.isAirborne) {
         // Submarine is entering water
         createWaterSplash(sub.object.position.clone(), 3);
+        
+        // Reset falling velocity when entering water
+        sub.fallingVelocity = 0;
     } else if (!wasAirborne && sub.isAirborne) {
         // Submarine is exiting water
         createWaterSplash(sub.object.position.clone(), 2);
+        
+        // Initialize falling velocity when becoming airborne
+        sub.fallingVelocity = 0;
     }
 }
 

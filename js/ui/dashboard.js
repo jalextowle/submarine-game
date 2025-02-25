@@ -19,17 +19,21 @@ export function updateDashboard() {
     try {
         // Get depth-value element from the original HTML
         const depthValueElement = document.getElementById('depth-value');
-        if (!depthValueElement) return;
+        const depthLabelElement = document.getElementById('depth-label');
+        
+        if (!depthValueElement || !depthLabelElement) return;
         
         // Update depth or height display
         if (gameState.submarine.isAirborne) {
             // When above water, show height as a positive number
             const height = Math.floor(gameState.submarine.object.position.y);
             depthValueElement.textContent = height;
+            depthLabelElement.textContent = "Height: ";
         } else {
             // When underwater, show depth as usual
             const depth = Math.max(0, Math.floor(-gameState.submarine.object.position.y));
             depthValueElement.textContent = depth;
+            depthLabelElement.textContent = "Depth: ";
         }
         
     } catch (error) {
