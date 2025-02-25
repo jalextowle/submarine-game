@@ -90,7 +90,7 @@ function initScene() {
         game.camera.main = new THREE.PerspectiveCamera(
             60, window.innerWidth / window.innerHeight, 0.1, 2000
         );
-        game.camera.main.position.set(0, 10, 30);
+        game.camera.main.position.set(0, 10, -30); // Position camera behind the submarine (negative Z)
         game.camera.main.lookAt(0, 0, 0);
         
         // Add brighter ambient light
@@ -552,7 +552,7 @@ function createOceanFloor() {
 function createSubmarine() {
     debug('Creating submarine');
     try {
-        // Create submarine body (using cylinder instead of capsule)
+        // Create submarine model (using cylinder instead of capsule)
         const bodyGeometry = new THREE.CylinderGeometry(2, 2, 6, 16);
         // Bright yellow submarine
         const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
@@ -567,7 +567,7 @@ function createSubmarine() {
         endCap1.position.set(3, 0, 0);
         endCap2.position.set(-3, 0, 0);
         
-        // Create submarine window
+        // Create submarine window - move to front of submarine
         const windowGeometry = new THREE.SphereGeometry(0.8, 16, 16);
         const windowMaterial = new THREE.MeshStandardMaterial({ 
             color: 0x87CEFA,
@@ -575,14 +575,14 @@ function createSubmarine() {
             opacity: 0.7
         });
         const window = new THREE.Mesh(windowGeometry, windowMaterial);
-        window.position.x = 2;
-        window.position.y = 1;
+        window.position.x = 3; // Move to front end
+        window.position.y = 0.5;
         
-        // Create submarine propeller
+        // Create submarine propeller - move to back of submarine
         const propellerGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.2);
         const propellerMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
         const propeller = new THREE.Mesh(propellerGeometry, propellerMaterial);
-        propeller.position.x = -4;
+        propeller.position.x = -3.5; // Move to back end
         
         // Create submarine fins
         const finGeometry = new THREE.BoxGeometry(2, 0.2, 1);
@@ -618,8 +618,9 @@ function createSubmarine() {
         game.scene.add(submarine);
         game.submarine.object = submarine;
         
-        // Position submarine
+        // Position submarine and set initial rotation
         submarine.position.set(0, 0, 0);
+        submarine.rotation.y = Math.PI; // Rotates submarine to face into the negative Z direction (forward)
         
         // Add propeller animation
         const animatePropeller = () => {
@@ -994,70 +995,64 @@ function update(deltaTime) {
         const sub = game.submarine;
         if (!sub.object) return;
         
-        // Apply submarine controls
-        let moveForward = 0;
-        let moveRight = 0;
-        let moveUp = 0;
-        let rotateY = 0;
-        let rotateX = 0;
+        // COMPLETELY REWRITTEN CONTROL SYSTEM
+        // ===================================
         
-        // Forward/backward movement
+        // 1. Define our control variables
+        let moveForward = 0;      // For forward/backward movement (W/S, Up/Down)
+        let diveAmount = 0;       // For depth control (Q/E only)
+        let rotateAmount = 0;     // For rotation (A/D, Left/Right)
+        let rotateX = 0;          // For visual pitch effect
+        
+        // 2. Clear and direct control mapping
+        // Forward/backward movement - ONLY controls movement in the direction the sub is facing
         if (game.keys.w || game.keys.ArrowUp) {
-            moveForward = 1;
+            moveForward = 1;      // Forward
         } else if (game.keys.s || game.keys.ArrowDown) {
-            moveForward = -1;
+            moveForward = -1;     // Backward
         }
         
-        // Left/right movement
+        // Left/right - ONLY controls rotation
         if (game.keys.a || game.keys.ArrowLeft) {
-            moveRight = -1;
+            rotateAmount = 1;     // Turn left
         } else if (game.keys.d || game.keys.ArrowRight) {
-            moveRight = 1;
+            rotateAmount = -1;    // Turn right
         }
         
-        // Up/down movement
+        // Up/down - ONLY controls diving/surfacing
         if (game.keys.q) {
-            moveUp = 1;
+            diveAmount = -1;      // Move up (decrease depth)
         } else if (game.keys.e) {
-            moveUp = -1;
+            diveAmount = 1;       // Move down (increase depth)
         }
         
-        // Rotation
-        if (game.keys.a || game.keys.ArrowLeft) {
-            rotateY = 1;
-        } else if (game.keys.d || game.keys.ArrowRight) {
-            rotateY = -1;
+        // 3. Apply rotation (turn submarine)
+        sub.object.rotation.y += rotateAmount * ROTATION_SPEED;
+        
+        // 4. Create visual feedback for diving/surfacing
+        if (diveAmount < 0) {
+            rotateX = -0.2;       // Nose up when surfacing
+        } else if (diveAmount > 0) {
+            rotateX = 0.2;        // Nose down when diving
         }
         
-        if (game.keys.w || game.keys.ArrowUp) {
-            rotateX = -0.5;
-        } else if (game.keys.s || game.keys.ArrowDown) {
-            rotateX = 0.5;
-        }
-        
-        // Apply rotation
-        sub.object.rotation.y += rotateY * ROTATION_SPEED;
-        
-        // Limit pitch rotation
-        const targetRotationX = rotateX * 0.3; // Max pitch angle
+        // 5. Apply limited pitch rotation for visual effect
+        const targetRotationX = rotateX * 0.3;
         sub.object.rotation.x += (targetRotationX - sub.object.rotation.x) * 0.1;
         
-        // Calculate movement direction based on submarine orientation
-        const direction = new THREE.Vector3(0, 0, -1);
-        direction.applyQuaternion(sub.object.quaternion);
+        // 6. Calculate movement direction based on submarine orientation
+        // Use negative Z-axis as forward direction (standard in Three.js)
+        const forwardDirection = new THREE.Vector3(0, 0, -1);
+        forwardDirection.applyQuaternion(sub.object.quaternion);
         
-        // Apply movement
-        sub.object.position.addScaledVector(direction, moveForward * MOVEMENT_SPEED);
+        // 7. Apply forward/backward movement - ONLY in the direction the sub is facing
+        sub.object.position.addScaledVector(forwardDirection, moveForward * MOVEMENT_SPEED);
         
-        // Apply side movement
-        const sideDirection = new THREE.Vector3(1, 0, 0);
-        sideDirection.applyQuaternion(sub.object.quaternion);
-        sub.object.position.addScaledVector(sideDirection, moveRight * MOVEMENT_SPEED * 0.7);
+        // 8. Apply depth movement - ONLY affects Y-position (depth)
+        // This is COMPLETELY SEPARATE from forward/backward movement
+        sub.object.position.y += diveAmount * MOVEMENT_SPEED * 0.5;
         
-        // Apply vertical movement
-        sub.object.position.y += moveUp * MOVEMENT_SPEED * 0.5;
-        
-        // Apply buoyancy when near surface
+        // 9. Apply buoyancy when near surface
         if (sub.object.position.y < 0) {
             // Underwater - slight buoyancy
             sub.object.position.y += 0.01;
@@ -1118,10 +1113,10 @@ function update(deltaTime) {
                     if (object.position.z < -cloudLimit) object.position.z = cloudLimit;
                 } else {
                     // It's a fish
-                    // Move fish forward
-                    const fishDirection = new THREE.Vector3(0, 0, 1);
-                    fishDirection.applyQuaternion(object.quaternion);
-                    object.position.addScaledVector(fishDirection, object.userData.speed);
+                    // Move fish forward in the direction they're facing
+                    const fishForwardDirection = new THREE.Vector3(0, 0, -1);
+                    fishForwardDirection.applyQuaternion(object.quaternion);
+                    object.position.addScaledVector(fishForwardDirection, object.userData.speed);
                     
                     // Make fish swim in a wavy pattern
                     object.rotation.y += object.userData.turnSpeed;
@@ -1139,7 +1134,7 @@ function update(deltaTime) {
                         // Turn fish around
                         object.rotation.y += Math.PI;
                         // Move fish away from boundary
-                        object.position.addScaledVector(fishDirection, -10);
+                        object.position.addScaledVector(fishForwardDirection, -10);
                     }
                     
                     // Make sure fish don't go above water or below ocean floor
@@ -1173,24 +1168,24 @@ function updateCamera() {
         // Calculate camera position behind and above submarine
         const sub = game.submarine.object;
         
-        // Get submarine's forward direction
-        const direction = new THREE.Vector3(0, 0, 1);
-        direction.applyQuaternion(sub.quaternion);
+        // Get submarine's forward direction (consistent with movement direction)
+        const forwardDirection = new THREE.Vector3(0, 0, -1);
+        forwardDirection.applyQuaternion(sub.quaternion);
         
-        // Position camera behind submarine
+        // Position camera behind submarine (opposite of forward direction)
         const cameraPosition = new THREE.Vector3();
         cameraPosition.copy(sub.position);
-        cameraPosition.addScaledVector(direction, -game.camera.followDistance);
+        cameraPosition.addScaledVector(forwardDirection, -game.camera.followDistance); // Negative to go behind
         cameraPosition.y += game.camera.heightOffset;
         
         // Set camera position
         game.camera.main.position.copy(cameraPosition);
         
-        // Calculate look-at position (ahead of submarine)
+        // Calculate look-at position (ahead of submarine in the direction it's facing)
         const lookAtPosition = new THREE.Vector3();
         lookAtPosition.copy(sub.position);
-        lookAtPosition.addScaledVector(direction, game.camera.lookAtOffset.z);
-        lookAtPosition.y += game.camera.lookAtOffset.y;
+        // Look slightly ahead of submarine
+        lookAtPosition.addScaledVector(forwardDirection, 5);
         
         // Make camera look at submarine
         game.camera.main.lookAt(lookAtPosition);
