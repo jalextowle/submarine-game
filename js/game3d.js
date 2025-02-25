@@ -1017,7 +1017,7 @@ function update(deltaTime) {
         updateCamera();
         
         // Update depth display
-        sub.depth = Math.max(0, Math.floor(-sub.object.position.y));
+        sub.depth = Math.floor(-sub.object.position.y);
         document.getElementById('depth-value').textContent = sub.depth;
         
         // Handle torpedo firing
