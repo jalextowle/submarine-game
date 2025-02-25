@@ -20,6 +20,9 @@ const MAX_DEPTH = 500;
 const SURFACE_LEVEL = 10;
 const WORLD_SIZE = 1000;
 const OCEAN_DEPTH = 500;
+const TORPEDO_SPEED = 2.0;        // Speed of torpedoes
+const TORPEDO_LIFETIME = 5000;    // Torpedo lifetime in milliseconds
+const TORPEDO_COOLDOWN = 1000;    // Cooldown between torpedo shots in milliseconds
 
 // Game state
 const game = {
@@ -28,7 +31,8 @@ const game = {
         position: new THREE.Vector3(0, 0, 0),
         rotation: new THREE.Euler(0, 0, 0),
         velocity: new THREE.Vector3(0, 0, 0),
-        depth: 0
+        depth: 0,
+        lastTorpedoTime: 0         // Track when the last torpedo was fired
     },
     camera: {
         main: null,
@@ -46,12 +50,15 @@ const game = {
         s: false,
         d: false,
         q: false,
-        e: false
+        e: false,
+        " ": false               // Track spacebar for firing torpedoes
     },
     scene: null,
     renderer: null,
     clock: new THREE.Clock(),
-    collisionObjects: []
+    collisionObjects: [],
+    torpedoes: [],               // Array to store active torpedoes
+    explosions: []               // Array to store active explosions
 };
 
 debug('Game state initialized');
@@ -923,6 +930,21 @@ function update(deltaTime) {
         sub.depth = Math.max(0, Math.floor(-sub.object.position.y));
         document.getElementById('depth-value').textContent = sub.depth;
         
+        // Handle torpedo firing
+        if (game.keys[" "]) { // Space key
+            const currentTime = Date.now();
+            if (currentTime - sub.lastTorpedoTime > TORPEDO_COOLDOWN) {
+                createTorpedo();
+                sub.lastTorpedoTime = currentTime;
+            }
+        }
+        
+        // Update torpedoes
+        updateTorpedoes(deltaTime);
+        
+        // Update explosions
+        updateExplosions();
+        
     } catch (error) {
         console.error('Error in update:', error);
     }
@@ -1042,4 +1064,383 @@ function animate() {
 document.addEventListener('DOMContentLoaded', () => {
     debug('DOM loaded, starting game');
     setTimeout(initGame, 100); // Small delay to ensure everything is loaded
-}); 
+});
+
+// Create torpedo
+function createTorpedo() {
+    debug('Creating torpedo');
+    try {
+        const sub = game.submarine.object;
+        if (!sub) return;
+        
+        // Get submarine's forward direction
+        const forwardDirection = new THREE.Vector3(0, 0, -1);
+        forwardDirection.applyQuaternion(sub.quaternion);
+        
+        // Create torpedo group
+        const torpedo = new THREE.Group();
+        
+        // Torpedo body - elongated cylinder
+        const torpedoBodyGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 16);
+        const torpedoMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x333333,
+            metalness: 0.7,
+            roughness: 0.3
+        });
+        
+        const torpedoBody = new THREE.Mesh(torpedoBodyGeometry, torpedoMaterial);
+        torpedoBody.rotation.x = Math.PI / 2; // Align with Z-axis
+        
+        // Torpedo nose - cone
+        const torpedoNoseGeometry = new THREE.ConeGeometry(0.3, 0.7, 16);
+        const torpedoNose = new THREE.Mesh(torpedoNoseGeometry, torpedoMaterial);
+        torpedoNose.rotation.x = -Math.PI / 2;
+        torpedoNose.position.z = 1.85;
+        
+        // Torpedo tail - small cylinder
+        const torpedoTailGeometry = new THREE.CylinderGeometry(0.3, 0.2, 0.5, 16);
+        const torpedoTail = new THREE.Mesh(torpedoTailGeometry, torpedoMaterial);
+        torpedoTail.rotation.x = Math.PI / 2;
+        torpedoTail.position.z = -1.75;
+        
+        // Torpedo fins
+        const finMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x444444,
+            metalness: 0.6,
+            roughness: 0.4
+        });
+        
+        for (let i = 0; i < 4; i++) {
+            const finGeometry = new THREE.BoxGeometry(0.1, 0.6, 0.8);
+            const fin = new THREE.Mesh(finGeometry, finMaterial);
+            fin.position.z = -1.5;
+            
+            // Position fins in X pattern
+            const angle = (i / 4) * Math.PI * 2;
+            fin.position.x = Math.cos(angle) * 0.3;
+            fin.position.y = Math.sin(angle) * 0.3;
+            fin.rotation.z = angle;
+            
+            torpedo.add(fin);
+        }
+        
+        // Propeller
+        const propellerMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x777777,
+            metalness: 0.7,
+            roughness: 0.3
+        });
+        
+        const propHub = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.1, 0.1, 0.2, 8),
+            propellerMaterial
+        );
+        propHub.rotation.x = Math.PI / 2;
+        propHub.position.z = -2;
+        
+        // Add propeller blades
+        for (let i = 0; i < 3; i++) {
+            const bladeGeometry = new THREE.BoxGeometry(0.05, 0.5, 0.1);
+            const blade = new THREE.Mesh(bladeGeometry, propellerMaterial);
+            blade.rotation.z = (i / 3) * Math.PI * 2;
+            propHub.add(blade);
+        }
+        
+        // Add a point light to simulate torpedo engine glow
+        const torpedoLight = new THREE.PointLight(0x00FFFF, 1, 5);
+        torpedoLight.position.z = -2;
+        
+        // Add all parts to torpedo group
+        torpedo.add(torpedoBody);
+        torpedo.add(torpedoNose);
+        torpedo.add(torpedoTail);
+        torpedo.add(propHub);
+        torpedo.add(torpedoLight);
+        
+        // Position torpedo at submarine's front, offset forward
+        const torpedoStartPos = sub.position.clone();
+        // Start from the bow of the submarine
+        torpedoStartPos.addScaledVector(forwardDirection, 15);
+        torpedo.position.copy(torpedoStartPos);
+        
+        // Rotate torpedo to match submarine's orientation
+        torpedo.rotation.copy(sub.rotation);
+        
+        // Add to scene
+        game.scene.add(torpedo);
+        
+        // Add to game torpedoes array with physics data
+        game.torpedoes.push({
+            object: torpedo,
+            velocity: forwardDirection.clone().multiplyScalar(TORPEDO_SPEED),
+            createdTime: Date.now(),
+            collisionRadius: 1.5
+        });
+        
+        // Play torpedo sound (if available)
+        playSound('torpedo');
+        
+        debug('Torpedo created');
+        return torpedo;
+    } catch (error) {
+        console.error('Error in createTorpedo:', error);
+    }
+}
+
+// Create explosion effect
+function createExplosion(position, size = 5) {
+    debug('Creating explosion');
+    try {
+        // Create particle geometry for explosion
+        const particleCount = 80;
+        const explosionGeometry = new THREE.BufferGeometry();
+        const posArray = new Float32Array(particleCount * 3);
+        const colorArray = new Float32Array(particleCount * 3);
+        const sizeArray = new Float32Array(particleCount);
+        
+        // Create random particles within sphere
+        for (let i = 0; i < particleCount; i++) {
+            // Random position in sphere
+            const radius = Math.random() * size;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const z = radius * Math.cos(phi);
+            
+            posArray[i * 3] = x;
+            posArray[i * 3 + 1] = y;
+            posArray[i * 3 + 2] = z;
+            
+            // Color - orange/yellow gradient
+            const colorScale = Math.random();
+            colorArray[i * 3] = 1.0; // R
+            colorArray[i * 3 + 1] = 0.3 + colorScale * 0.7; // G
+            colorArray[i * 3 + 2] = colorScale * 0.3; // B
+            
+            // Size - random
+            sizeArray[i] = Math.random() * 2 + 1;
+        }
+        
+        explosionGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        explosionGeometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+        explosionGeometry.setAttribute('size', new THREE.BufferAttribute(sizeArray, 1));
+        
+        // Create explosion material
+        const explosionMaterial = new THREE.PointsMaterial({
+            size: 1,
+            vertexColors: true,
+            blending: THREE.AdditiveBlending,
+            transparent: true,
+            opacity: 1
+        });
+        
+        // Create particle system
+        const explosionParticles = new THREE.Points(explosionGeometry, explosionMaterial);
+        explosionParticles.position.copy(position);
+        game.scene.add(explosionParticles);
+        
+        // Add explosion light
+        const explosionLight = new THREE.PointLight(0xFF7700, 5, 20);
+        explosionLight.position.copy(position);
+        game.scene.add(explosionLight);
+        
+        // Store explosion data for animation
+        game.explosions.push({
+            particles: explosionParticles,
+            light: explosionLight,
+            createdTime: Date.now(),
+            duration: 1000, // Explosion duration in milliseconds
+            maxSize: size,
+            originalPositions: posArray.slice() // Copy original positions for animation
+        });
+        
+        // Play explosion sound (if available)
+        playSound('explosion');
+        
+        debug('Explosion created');
+    } catch (error) {
+        console.error('Error in createExplosion:', error);
+    }
+}
+
+// Function to play sounds
+function playSound(type) {
+    // In a future enhancement, actual sound effects could be added here
+    debug(`Playing sound: ${type}`);
+}
+
+// Update torpedoes
+function updateTorpedoes(deltaTime) {
+    try {
+        const currentTime = Date.now();
+        const torpedoesToRemove = [];
+        
+        // Update each torpedo
+        game.torpedoes.forEach((torpedo, index) => {
+            // Move torpedo
+            torpedo.object.position.add(torpedo.velocity);
+            
+            // Rotate propeller for effect
+            const propeller = torpedo.object.children.find(child => 
+                child.geometry && child.geometry.type === 'CylinderGeometry' && child.position.z < -1.5);
+            if (propeller) {
+                propeller.rotation.z += 0.3;
+            }
+            
+            // Add bubble trail
+            if (Math.random() < 0.3) {
+                createBubbleTrail(torpedo.object.position.clone(), 0.2);
+            }
+            
+            // Check lifetime
+            if (currentTime - torpedo.createdTime > TORPEDO_LIFETIME) {
+                torpedoesToRemove.push(index);
+                return;
+            }
+            
+            // Check world boundaries
+            const pos = torpedo.object.position;
+            const boundaryLimit = WORLD_SIZE / 2;
+            if (Math.abs(pos.x) > boundaryLimit || 
+                Math.abs(pos.z) > boundaryLimit ||
+                pos.y < -OCEAN_DEPTH || 
+                pos.y > SURFACE_LEVEL) {
+                torpedoesToRemove.push(index);
+                return;
+            }
+            
+            // Check collision with obstacles
+            let collision = false;
+            game.collisionObjects.forEach(obstacle => {
+                if (collision) return; // Skip if already collided
+                
+                if (obstacle.userData && obstacle.userData.isObstacle) {
+                    const obstaclePos = new THREE.Vector3();
+                    obstacle.getWorldPosition(obstaclePos);
+                    
+                    const distance = pos.distanceTo(obstaclePos);
+                    const minDistance = torpedo.collisionRadius + obstacle.userData.collisionRadius;
+                    
+                    if (distance < minDistance) {
+                        collision = true;
+                        // Create explosion at collision point
+                        const explosionPos = pos.clone().add(
+                            obstaclePos.clone().sub(pos).normalize().multiplyScalar(torpedo.collisionRadius)
+                        );
+                        createExplosion(explosionPos);
+                        
+                        // Mark torpedo for removal
+                        torpedoesToRemove.push(index);
+                    }
+                }
+            });
+        });
+        
+        // Remove torpedoes in reverse order
+        torpedoesToRemove.sort((a, b) => b - a).forEach(index => {
+            const torpedo = game.torpedoes[index];
+            if (torpedo && torpedo.object) {
+                game.scene.remove(torpedo.object);
+            }
+            game.torpedoes.splice(index, 1);
+        });
+    } catch (error) {
+        console.error('Error in updateTorpedoes:', error);
+    }
+}
+
+// Create bubble trail for torpedoes
+function createBubbleTrail(position, size) {
+    try {
+        // Create a small bubble
+        const bubbleGeometry = new THREE.SphereGeometry(size * Math.random() + 0.1, 8, 8);
+        const bubbleMaterial = new THREE.MeshBasicMaterial({
+            color: 0xFFFFFF,
+            transparent: true,
+            opacity: 0.3
+        });
+        
+        const bubble = new THREE.Mesh(bubbleGeometry, bubbleMaterial);
+        
+        // Position at torpedo with slight random offset
+        bubble.position.copy(position);
+        bubble.position.x += (Math.random() - 0.5) * 0.5;
+        bubble.position.y += (Math.random() - 0.5) * 0.5;
+        bubble.position.z += (Math.random() - 0.5) * 0.5;
+        
+        game.scene.add(bubble);
+        
+        // Animate bubble - rise and fade
+        const startY = bubble.position.y;
+        const animateBubble = () => {
+            bubble.position.y += 0.05;
+            bubble.material.opacity -= 0.01;
+            
+            if (bubble.material.opacity <= 0 || bubble.position.y > startY + 10) {
+                game.scene.remove(bubble);
+                return;
+            }
+            
+            requestAnimationFrame(animateBubble);
+        };
+        
+        animateBubble();
+    } catch (error) {
+        console.error('Error in createBubbleTrail:', error);
+    }
+}
+
+// Update explosions
+function updateExplosions() {
+    try {
+        const currentTime = Date.now();
+        const explosionsToRemove = [];
+        
+        // Update each explosion
+        game.explosions.forEach((explosion, index) => {
+            const age = currentTime - explosion.createdTime;
+            const lifeRatio = age / explosion.duration;
+            
+            if (lifeRatio >= 1) {
+                explosionsToRemove.push(index);
+                return;
+            }
+            
+            // Scale particles outward
+            const positions = explosion.particles.geometry.attributes.position.array;
+            const originalPositions = explosion.originalPositions;
+            
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] = originalPositions[i] * (1 + lifeRatio);
+                positions[i + 1] = originalPositions[i + 1] * (1 + lifeRatio);
+                positions[i + 2] = originalPositions[i + 2] * (1 + lifeRatio);
+            }
+            
+            explosion.particles.geometry.attributes.position.needsUpdate = true;
+            
+            // Fade out
+            explosion.particles.material.opacity = 1 - lifeRatio;
+            
+            // Reduce light intensity
+            if (explosion.light) {
+                explosion.light.intensity = 5 * (1 - lifeRatio);
+            }
+        });
+        
+        // Remove expired explosions in reverse order
+        explosionsToRemove.sort((a, b) => b - a).forEach(index => {
+            const explosion = game.explosions[index];
+            if (explosion) {
+                game.scene.remove(explosion.particles);
+                if (explosion.light) {
+                    game.scene.remove(explosion.light);
+                }
+            }
+            game.explosions.splice(index, 1);
+        });
+    } catch (error) {
+        console.error('Error in updateExplosions:', error);
+    }
+} 
