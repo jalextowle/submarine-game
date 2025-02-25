@@ -806,11 +806,17 @@ function update(deltaTime) {
         // ===================================
         
         // Get orientation vectors
-        const forwardDirection = new THREE.Vector3(0, 0, -1);
-        forwardDirection.applyQuaternion(sub.object.quaternion);
+        // Use Quaternion directly from rotation to ensure correct orientation vectors
+        const quaternion = new THREE.Quaternion();
+        quaternion.setFromEuler(sub.object.rotation);
         
+        // Create forward vector (submarine points along negative Z)
+        const forwardDirection = new THREE.Vector3(0, 0, -1);
+        forwardDirection.applyQuaternion(quaternion);
+        
+        // Create right vector (perpendicular to forward direction)
         const rightDirection = new THREE.Vector3(1, 0, 0);
-        rightDirection.applyQuaternion(sub.object.quaternion);
+        rightDirection.applyQuaternion(quaternion);
         
         // 1. MOVEMENT CONTROLS (W/S/A/D)
         // Forward/backward propulsion (W/S) in the direction the submarine is pointing
@@ -830,8 +836,22 @@ function update(deltaTime) {
         let strafeDirection = 0;
         if (game.keys.a) {
             strafeDirection = -1; // Strafe left
+            
+            // Create water jet effect on right side (pushing submarine left)
+            if (Math.random() < 0.3 && sub.object) { // Only create jets occasionally for performance
+                const jetPosition = sub.object.position.clone();
+                jetPosition.addScaledVector(rightDirection, 2); // Position on right side
+                createWaterJet(jetPosition, rightDirection.clone().negate(), 0.5);
+            }
         } else if (game.keys.d) {
             strafeDirection = 1;  // Strafe right
+            
+            // Create water jet effect on left side (pushing submarine right)
+            if (Math.random() < 0.3 && sub.object) { // Only create jets occasionally for performance
+                const jetPosition = sub.object.position.clone();
+                jetPosition.addScaledVector(rightDirection, -2); // Position on left side
+                createWaterJet(jetPosition, rightDirection, 0.5);
+            }
         }
         
         // Apply propulsion in forward direction - this will change depth based on submarine angle
@@ -839,7 +859,9 @@ function update(deltaTime) {
         sub.object.position.addScaledVector(forwardDirection, propulsionForce);
         
         // Apply strafe movement perpendicular to forward direction
+        // Strafe movement should ONLY affect position and roll (banking), never yaw
         if (strafeDirection !== 0) {
+            // Use rightDirection which is perpendicular to submarine's facing direction
             sub.object.position.addScaledVector(rightDirection, strafeDirection * STRAFE_SPEED);
         }
         
@@ -861,14 +883,17 @@ function update(deltaTime) {
         }
         
         // 3. APPLY ROTATION
-        // Apply yaw (turning left/right)
+        // Yaw (turning left/right) - controlled ONLY by mouse movement
         sub.object.rotation.y = sub.targetYaw;
         
         // Apply pitch directly for more responsive control
-        sub.object.rotation.x = sub.targetPitch; // Changed from interpolation to direct assignment
+        sub.object.rotation.x = sub.targetPitch;
         
-        // Ensure roll is absolutely zero
+        // Always keep roll at zero - banking removed for now
         sub.object.rotation.z = 0;
+        
+        // Enforce rotation order - YXZ ensures proper rotation application
+        sub.object.rotation.order = 'YXZ';
         
         // 4. BOUNDARIES AND ENVIRONMENT INTERACTIONS
         // World boundaries
@@ -1680,4 +1705,75 @@ function initControls() {
     });
     
     debug('Controls initialized');
+}
+
+// Create water jet effect for strafing
+function createWaterJet(position, direction, size) {
+    try {
+        // Create particles for water jet
+        const particleCount = 5;
+        const particleGeometry = new THREE.BufferGeometry();
+        const posArray = new Float32Array(particleCount * 3);
+        
+        // Create initial positions
+        for (let i = 0; i < particleCount; i++) {
+            // Random position with small offset
+            posArray[i * 3] = position.x + (Math.random() - 0.5) * 0.5;
+            posArray[i * 3 + 1] = position.y + (Math.random() - 0.5) * 0.5;
+            posArray[i * 3 + 2] = position.z + (Math.random() - 0.5) * 0.5;
+        }
+        
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        
+        // Create material with blue-white color for water
+        const particleMaterial = new THREE.PointsMaterial({
+            color: 0x40E0D0,
+            size: size * (Math.random() * 0.5 + 0.5),
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending
+        });
+        
+        const particles = new THREE.Points(particleGeometry, particleMaterial);
+        game.scene.add(particles);
+        
+        // Store initial direction and velocity
+        const velocity = direction.clone().multiplyScalar(0.4);
+        
+        // Animate particles
+        let age = 0;
+        const maxAge = 20;
+        
+        const animateJet = () => {
+            age++;
+            if (age >= maxAge) {
+                game.scene.remove(particles);
+                return;
+            }
+            
+            // Update positions
+            const positions = particles.geometry.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] += velocity.x;
+                positions[i * 3 + 1] += velocity.y;
+                positions[i * 3 + 2] += velocity.z;
+                
+                // Add some randomness to movement
+                positions[i * 3] += (Math.random() - 0.5) * 0.1;
+                positions[i * 3 + 1] += (Math.random() - 0.5) * 0.1;
+                positions[i * 3 + 2] += (Math.random() - 0.5) * 0.1;
+            }
+            
+            particles.geometry.attributes.position.needsUpdate = true;
+            
+            // Fade out
+            particles.material.opacity = 0.7 * (1 - age / maxAge);
+            
+            requestAnimationFrame(animateJet);
+        };
+        
+        animateJet();
+    } catch (error) {
+        console.error('Error in createWaterJet:', error);
+    }
 } 
