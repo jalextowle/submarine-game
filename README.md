@@ -6,26 +6,20 @@ A 3D web-based submarine game built with Three.js where players explore a vibran
 
 - Immersive 3D underwater environment with tropical aesthetics
 - Realistic submarine controls with physics-based movement
-- Treasure collection gameplay
-- Vibrant ocean floor with sand, coral, and marine life
-- Dynamic fish and cloud animations
-- Score tracking system
+- Dynamic cloud animations
 - Third-person camera that follows your submarine
 - Physics-based movement with buoyancy and momentum
 
 ## How to Play
 
 1. Use WASD or arrow keys to control the submarine's movement
+   - Mouse: Position submarine
    - W/Up Arrow: Move forward
    - S/Down Arrow: Move backward
-   - A/Left Arrow: Turn left/move left
-   - D/Right Arrow: Turn right/move right
-   - Q: Move upward
-   - E: Move downward
+   - A/Left Arrow: Strafe left/move left
+   - D/Right Arrow: Strafe right/move right
 
-2. Collect treasures to increase your score
-3. Explore the underwater world and enjoy the scenery
-4. Press 'R' to restart the game if needed
+2. Explore the underwater world and enjoy the scenery
 
 ## Running the Game
 
