@@ -29,6 +29,7 @@ const MAX_PITCH_ANGLE = Math.PI/2;  // Increased to 90 degrees (straight down)
 const PROPULSION_ACCELERATION = 0.03; // How quickly the submarine accelerates
 const MAX_PROPULSION = 2.0;          // Maximum propulsion speed
 const PROPULSION_DECAY = 0.99;       // How quickly propulsion decays without input
+const GRAVITY = 0.1;                 // Gravity force when submarine is above water
 
 // Game state
 const game = {
@@ -43,7 +44,8 @@ const game = {
         targetPitch: 0,               // Target pitch angle
         targetYaw: 0,                 // Target yaw angle
         mouseControlActive: false,     // Whether mouse control is currently active
-        rotationOrder: 'YXZ'           // Added for rotation order
+        rotationOrder: 'YXZ',           // Added for rotation order
+        isAirborne: false              // Flag to track if submarine is above water
     },
     camera: {
         main: null,
@@ -195,6 +197,7 @@ function initScene() {
                 <p><strong>A/D:</strong> Strafe left/right</p>
                 <p><strong>Space:</strong> Fire torpedo</p>
                 <p><strong>H:</strong> Toggle help</p>
+                <p><strong>Jump:</strong> Point up and accelerate!</p>
                 <p><strong>Click game to activate mouse control</strong></p>
             </div>
         `;
@@ -855,14 +858,18 @@ function update(deltaTime) {
         }
         
         // Apply propulsion in forward direction - this will change depth based on submarine angle
-        const propulsionForce = sub.propulsion * MOVEMENT_SPEED;
+        // Reduce propulsion effectiveness when airborne
+        const propulsionEffectiveness = sub.isAirborne ? 0.3 : 1.0; // 30% effectiveness in air
+        const propulsionForce = sub.propulsion * MOVEMENT_SPEED * propulsionEffectiveness;
         sub.object.position.addScaledVector(forwardDirection, propulsionForce);
         
         // Apply strafe movement perpendicular to forward direction
         // Strafe movement should ONLY affect position and roll (banking), never yaw
+        // Also reduce strafe effectiveness when airborne
         if (strafeDirection !== 0) {
+            const strafeEffectiveness = sub.isAirborne ? 0.2 : 1.0; // 20% effectiveness in air
             // Use rightDirection which is perpendicular to submarine's facing direction
-            sub.object.position.addScaledVector(rightDirection, strafeDirection * STRAFE_SPEED);
+            sub.object.position.addScaledVector(rightDirection, strafeDirection * STRAFE_SPEED * strafeEffectiveness);
         }
         
         // 2. MOUSE ORIENTATION CONTROLS
@@ -910,10 +917,22 @@ function update(deltaTime) {
             sub.object.position.y += 0.02; // Weaker buoyancy deeper
         }
         
-        // Surface boundary
-        if (sub.object.position.y > SURFACE_LEVEL) {
-            sub.object.position.y = SURFACE_LEVEL;
-            sub.targetPitch = 0; // Level out when at surface
+        // Check if submarine is above water (airborne)
+        const wasAirborne = sub.isAirborne;
+        sub.isAirborne = sub.object.position.y > SURFACE_LEVEL;
+        
+        // Create splash effect when entering or exiting water
+        if (wasAirborne && !sub.isAirborne) {
+            // Submarine is entering water
+            createWaterSplash(sub.object.position.clone(), 3);
+        } else if (!wasAirborne && sub.isAirborne) {
+            // Submarine is exiting water
+            createWaterSplash(sub.object.position.clone(), 2);
+        }
+        
+        // Apply gravity when above water
+        if (sub.isAirborne) {
+            sub.object.position.y -= GRAVITY;
         }
         
         // Ocean floor boundary
@@ -1775,5 +1794,112 @@ function createWaterJet(position, direction, size) {
         animateJet();
     } catch (error) {
         console.error('Error in createWaterJet:', error);
+    }
+}
+
+// Create water splash effect for entering/exiting water
+function createWaterSplash(position, size) {
+    try {
+        debug('Creating water splash effect');
+        
+        // Create more particles for a bigger splash
+        const particleCount = 40;
+        const particleGeometry = new THREE.BufferGeometry();
+        const posArray = new Float32Array(particleCount * 3);
+        
+        // Position the splash at the water surface
+        const splashPos = position.clone();
+        splashPos.y = SURFACE_LEVEL;
+        
+        // Create particles in a circular pattern around the splash point
+        for (let i = 0; i < particleCount; i++) {
+            // Calculate angle and distance from center
+            const angle = Math.random() * Math.PI * 2;
+            const distance = Math.random() * size * 2;
+            
+            // Set positions in a circle at water level, with some randomness
+            posArray[i * 3] = splashPos.x + Math.cos(angle) * distance;
+            posArray[i * 3 + 1] = splashPos.y + Math.random() * size * 0.8; // Some height variation
+            posArray[i * 3 + 2] = splashPos.z + Math.sin(angle) * distance;
+        }
+        
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        
+        // Create material with blue-white color for water
+        const particleMaterial = new THREE.PointsMaterial({
+            color: 0x40E0D0,
+            size: size * 0.4,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending
+        });
+        
+        const particles = new THREE.Points(particleGeometry, particleMaterial);
+        game.scene.add(particles);
+        
+        // Add a flash of light at the splash point
+        const splashLight = new THREE.PointLight(0x40E0D0, 2, size * 5);
+        splashLight.position.copy(splashPos);
+        game.scene.add(splashLight);
+        
+        // Animate particles - they should fly upward and outward, then fall back down
+        const velocities = [];
+        for (let i = 0; i < particleCount; i++) {
+            // Random upward and outward velocity
+            const angle = Math.random() * Math.PI * 2;
+            const outwardSpeed = Math.random() * 0.5 + 0.2;
+            const upwardSpeed = Math.random() * 0.5 + 0.5;
+            
+            velocities.push({
+                x: Math.cos(angle) * outwardSpeed,
+                y: upwardSpeed,
+                z: Math.sin(angle) * outwardSpeed
+            });
+        }
+        
+        // Animate splash
+        let age = 0;
+        const maxAge = 30;
+        
+        const animateSplash = () => {
+            age++;
+            if (age >= maxAge) {
+                game.scene.remove(particles);
+                game.scene.remove(splashLight);
+                return;
+            }
+            
+            // Update positions with gravity effect
+            const positions = particles.geometry.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                // Apply velocity
+                positions[i * 3] += velocities[i].x;
+                positions[i * 3 + 1] += velocities[i].y;
+                positions[i * 3 + 2] += velocities[i].z;
+                
+                // Apply gravity to y velocity
+                velocities[i].y -= 0.05;
+                
+                // Don't let particles fall below water surface
+                if (positions[i * 3 + 1] < SURFACE_LEVEL) {
+                    positions[i * 3 + 1] = SURFACE_LEVEL;
+                    velocities[i].y *= -0.3; // Bounce with reduced energy
+                }
+            }
+            
+            particles.geometry.attributes.position.needsUpdate = true;
+            
+            // Fade out particles and light
+            particles.material.opacity = 0.8 * (1 - age / maxAge);
+            if (splashLight) {
+                splashLight.intensity = 2 * (1 - age / maxAge);
+            }
+            
+            requestAnimationFrame(animateSplash);
+        };
+        
+        animateSplash();
+    } catch (error) {
+        console.error('Error in createWaterSplash:', error);
     }
 } 
