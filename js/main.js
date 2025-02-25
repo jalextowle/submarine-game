@@ -11,7 +11,7 @@ import { setupCamera, updateCamera } from './scene/camera.js';
 
 // Environment imports
 import { createWaterSurface } from './environment/water.js';
-import { createOceanFloor } from './environment/oceanFloor.js';
+import { createOceanFloor, debugTerrain } from './environment/oceanFloor.js';
 import { createObstacles, checkObstacleCollisions } from './environment/obstacles.js';
 
 // Submarine imports
@@ -55,6 +55,9 @@ export function initGame() {
         createInstructions();
         createDashboard();
         
+        // Add debug controls
+        setupDebugControls();
+        
         // Start the game loop
         animate();
         
@@ -62,6 +65,16 @@ export function initGame() {
     } catch (error) {
         console.error('Error in initGame:', error);
     }
+}
+
+// Setup debug controls
+function setupDebugControls() {
+    window.addEventListener('keydown', (event) => {
+        // Toggle terrain debug panel with 'T' key
+        if (event.key === 't' || event.key === 'T') {
+            debugTerrain();
+        }
+    });
 }
 
 // Main game loop

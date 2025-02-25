@@ -15,6 +15,13 @@ export const SURFACE_LEVEL = 10;
 export const WORLD_SIZE = 1000;
 export const OCEAN_DEPTH = 500;
 
+// Terrain constants
+export const TERRAIN_SCALE = 0.003;         // Scale of terrain features (smaller = larger features)
+export const TERRAIN_HEIGHT = 80;           // Maximum height of terrain features (increased for more pronounced terrain)
+export const TERRAIN_OFFSET = 20;           // Vertical offset for terrain (subtracted from height)
+export const TERRAIN_OCTAVES = 5;           // Number of noise octaves for terrain detail
+export const TERRAIN_PERSISTENCE = 0.65;    // Persistence between octaves (controls roughness)
+
 // Weapon constants
 export const TORPEDO_SPEED = 3.0;        // Speed of torpedoes
 export const TORPEDO_LIFETIME = 5000;    // Torpedo lifetime in milliseconds
