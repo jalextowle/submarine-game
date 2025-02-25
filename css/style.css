@@ -138,4 +138,96 @@ body {
 .restart-hint {
     font-size: 18px;
     color: #aaaaaa;
+}
+
+#instructions {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 20px;
+    border-radius: 10px;
+    border: 2px solid #40E0D0;
+    box-shadow: 0 0 15px rgba(64, 224, 208, 0.5);
+    color: #fff;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+#instructions.visible {
+    opacity: 1;
+}
+
+.instructions-content {
+    max-width: 400px;
+}
+
+#instructions h2 {
+    margin-bottom: 15px;
+    color: #40E0D0;
+    font-size: 24px;
+}
+
+#instructions p {
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+#instructions strong {
+    color: #FFD700;
+}
+
+/* Controls indicator - appears when mouse controls are active */
+.control-indicator {
+    position: absolute;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.5);
+    color: #40E0D0;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* First-person view indicator */
+.view-indicator {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background-color: rgba(0, 0, 0, 0.5);
+    color: #FFD700;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 14px;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* Propulsion indicator */
+.propulsion-indicator {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 10px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 5px;
+    overflow: hidden;
+    z-index: 10;
+}
+
+.propulsion-bar {
+    height: 100%;
+    width: 50%;
+    background-color: #40E0D0;
+    transition: width 0.1s ease, transform 0.1s ease;
+    transform: translateX(0);
 } 

@@ -14,15 +14,21 @@ function debug(message) {
 debug('Script started');
 
 // Game constants
-const MOVEMENT_SPEED = 0.5;
+const MOVEMENT_SPEED = 1.5;
+const STRAFE_SPEED = 1.2;      // Side-to-side movement speed
 const ROTATION_SPEED = 0.03;
 const MAX_DEPTH = 500;
 const SURFACE_LEVEL = 10;
 const WORLD_SIZE = 1000;
 const OCEAN_DEPTH = 500;
-const TORPEDO_SPEED = 2.0;        // Speed of torpedoes
+const TORPEDO_SPEED = 3.0;        // Speed of torpedoes
 const TORPEDO_LIFETIME = 5000;    // Torpedo lifetime in milliseconds
 const TORPEDO_COOLDOWN = 1000;    // Cooldown between torpedo shots in milliseconds
+const MOUSE_SENSITIVITY = 0.2;       // Sensitivity for mouse controls
+const MAX_PITCH_ANGLE = 0.4;         // Maximum pitch angle (radians)
+const PROPULSION_ACCELERATION = 0.03; // How quickly the submarine accelerates
+const MAX_PROPULSION = 2.0;          // Maximum propulsion speed
+const PROPULSION_DECAY = 0.99;       // How quickly propulsion decays without input
 
 // Game state
 const game = {
@@ -32,7 +38,11 @@ const game = {
         rotation: new THREE.Euler(0, 0, 0),
         velocity: new THREE.Vector3(0, 0, 0),
         depth: 0,
-        lastTorpedoTime: 0         // Track when the last torpedo was fired
+        lastTorpedoTime: 0,
+        propulsion: 0,                // Current propulsion level (-1 to 1)
+        targetPitch: 0,               // Target pitch angle
+        targetYaw: 0,                 // Target yaw angle
+        mouseControlActive: false     // Whether mouse control is currently active
     },
     camera: {
         main: null,
@@ -41,17 +51,19 @@ const game = {
         lookAtOffset: new THREE.Vector3(0, 0, 10)
     },
     keys: {
-        ArrowUp: false,
-        ArrowDown: false,
-        ArrowLeft: false,
-        ArrowRight: false,
         w: false,
         a: false,
         s: false,
         d: false,
-        q: false,
-        e: false,
-        " ": false               // Track spacebar for firing torpedoes
+        " ": false
+    },
+    mouse: {
+        x: 0,
+        y: 0,
+        movementX: 0,
+        movementY: 0,
+        leftButton: false,
+        rightButton: false
     },
     scene: null,
     renderer: null,
@@ -164,6 +176,28 @@ function initScene() {
         
         // Initialize collision objects array
         game.collisionObjects = [];
+        
+        // After initializing camera
+        // Lock the pointer when clicking on the renderer
+        game.renderer.domElement.addEventListener('click', () => {
+            game.renderer.domElement.requestPointerLock();
+        });
+        
+        // Update instructions element with simplified controls
+        const instructions = document.createElement('div');
+        instructions.id = 'instructions';
+        instructions.innerHTML = `
+            <div class="instructions-content">
+                <h2>Controls</h2>
+                <p><strong>Mouse:</strong> Control direction (aim)</p>
+                <p><strong>W/S:</strong> Move forward/backward</p>
+                <p><strong>A/D:</strong> Strafe left/right</p>
+                <p><strong>Space:</strong> Fire torpedo</p>
+                <p><strong>H:</strong> Toggle help</p>
+                <p><strong>Click game to activate mouse control</strong></p>
+            </div>
+        `;
+        document.body.appendChild(instructions);
         
         debug('Scene initialization complete');
     } catch (error) {
@@ -743,24 +777,6 @@ function createSubmarine() {
     }
 }
 
-// Event listeners for keyboard input
-window.addEventListener('keydown', (e) => {
-    if (game.keys.hasOwnProperty(e.key)) {
-        game.keys[e.key] = true;
-    }
-    
-    // Restart game with 'R' key when game over
-    if (e.key === 'r' && game.gameOver) {
-        initGame();
-    }
-});
-
-window.addEventListener('keyup', (e) => {
-    if (game.keys.hasOwnProperty(e.key)) {
-        game.keys[e.key] = false;
-    }
-});
-
 // Update game state
 function update(deltaTime) {
     try {
@@ -773,72 +789,75 @@ function update(deltaTime) {
         // Store previous position for collision detection
         const previousPosition = sub.object.position.clone();
         
-        // COMPLETELY REWRITTEN CONTROL SYSTEM
+        // SIMPLIFIED CONTROL SYSTEM
         // ===================================
         
-        // 1. Define our control variables
-        let moveForward = 0;      // For forward/backward movement (W/S, Up/Down)
-        let diveAmount = 0;       // For depth control (Q/E only)
-        let rotateAmount = 0;     // For rotation (A/D, Left/Right)
-        let rotateX = 0;          // For visual pitch effect
-        
-        // 2. Clear and direct control mapping
-        // Forward/backward movement - ONLY controls movement in the direction the sub is facing
-        if (game.keys.w || game.keys.ArrowUp) {
-            moveForward = 1;      // Forward
-        } else if (game.keys.s || game.keys.ArrowDown) {
-            moveForward = -1;     // Backward
-        }
-        
-        // Left/right - ONLY controls rotation
-        if (game.keys.a || game.keys.ArrowLeft) {
-            rotateAmount = 1;     // Turn left
-        } else if (game.keys.d || game.keys.ArrowRight) {
-            rotateAmount = -1;    // Turn right
-        }
-        
-        // Up/down - ONLY controls diving/surfacing
-        if (game.keys.q) {
-            diveAmount = -1;      // Move up (decrease depth)
-        } else if (game.keys.e) {
-            diveAmount = 1;       // Move down (increase depth)
-        }
-        
-        // 3. Apply rotation (turn submarine)
-        sub.object.rotation.y += rotateAmount * ROTATION_SPEED;
-        
-        // 4. Create visual feedback for diving/surfacing
-        if (diveAmount < 0) {
-            rotateX = -0.2;       // Nose up when surfacing
-        } else if (diveAmount > 0) {
-            rotateX = 0.2;        // Nose down when diving
-        }
-        
-        // 5. Apply limited pitch rotation for visual effect
-        const targetRotationX = rotateX * 0.3;
-        sub.object.rotation.x += (targetRotationX - sub.object.rotation.x) * 0.1;
-        
-        // 6. Calculate movement direction based on submarine orientation
-        // Use negative Z-axis as forward direction (standard in Three.js)
+        // Get orientation vectors
         const forwardDirection = new THREE.Vector3(0, 0, -1);
         forwardDirection.applyQuaternion(sub.object.quaternion);
         
-        // 7. Apply forward/backward movement - ONLY in the direction the sub is facing
-        sub.object.position.addScaledVector(forwardDirection, moveForward * MOVEMENT_SPEED);
+        const rightDirection = new THREE.Vector3(1, 0, 0);
+        rightDirection.applyQuaternion(sub.object.quaternion);
         
-        // 8. Apply depth movement - ONLY affects Y-position (depth)
-        // This is COMPLETELY SEPARATE from forward/backward movement
-        sub.object.position.y += diveAmount * MOVEMENT_SPEED * 0.5;
-        
-        // 9. Apply buoyancy when near surface
-        if (sub.object.position.y < 0) {
-            // Underwater - slight buoyancy
-            sub.object.position.y += 0.01;
-        } else if (sub.object.position.y > SURFACE_LEVEL) {
-            // Above surface limit - push down
-            sub.object.position.y = SURFACE_LEVEL;
+        // 1. MOVEMENT CONTROLS (W/S/A/D)
+        // Forward/backward propulsion (W/S) in the direction the submarine is pointing
+        if (game.keys.w) {
+            // Increase forward propulsion
+            sub.propulsion = Math.min(sub.propulsion + PROPULSION_ACCELERATION, MAX_PROPULSION);
+        } else if (game.keys.s) {
+            // Increase backward propulsion
+            sub.propulsion = Math.max(sub.propulsion - PROPULSION_ACCELERATION, -MAX_PROPULSION * 0.5);
+        } else {
+            // Gradually decrease propulsion
+            sub.propulsion *= PROPULSION_DECAY;
+            if (Math.abs(sub.propulsion) < 0.01) sub.propulsion = 0;
         }
         
+        // Strafe left/right movement (A/D)
+        let strafeDirection = 0;
+        if (game.keys.a) {
+            strafeDirection = -1; // Strafe left
+        } else if (game.keys.d) {
+            strafeDirection = 1;  // Strafe right
+        }
+        
+        // Apply propulsion in forward direction - this will change depth based on submarine angle
+        const propulsionForce = sub.propulsion * MOVEMENT_SPEED;
+        sub.object.position.addScaledVector(forwardDirection, propulsionForce);
+        
+        // Apply strafe movement perpendicular to forward direction
+        if (strafeDirection !== 0) {
+            sub.object.position.addScaledVector(rightDirection, strafeDirection * STRAFE_SPEED);
+        }
+        
+        // 2. MOUSE ORIENTATION CONTROLS
+        // Mouse controls pitch and yaw
+        if (sub.mouseControlActive) {
+            // Apply mouse movement to yaw (left/right turning)
+            sub.targetYaw -= game.mouse.movementX * MOUSE_SENSITIVITY * 0.01;
+            
+            // Apply mouse movement to pitch (up/down angle)
+            sub.targetPitch -= game.mouse.movementY * MOUSE_SENSITIVITY * 0.01;
+            
+            // Clamp pitch to prevent flipping
+            sub.targetPitch = Math.max(Math.min(sub.targetPitch, MAX_PITCH_ANGLE), -MAX_PITCH_ANGLE);
+            
+            // Reset movement values for next frame
+            game.mouse.movementX = 0;
+            game.mouse.movementY = 0;
+        }
+        
+        // 3. APPLY ROTATION
+        // Apply yaw (turning left/right)
+        sub.object.rotation.y = sub.targetYaw;
+        
+        // Smoothly interpolate current pitch toward target pitch
+        sub.object.rotation.x += (sub.targetPitch - sub.object.rotation.x) * 0.1;
+        
+        // Keep roll at zero - we're not using roll
+        sub.object.rotation.z = 0;
+        
+        // 4. BOUNDARIES AND ENVIRONMENT INTERACTIONS
         // World boundaries
         const boundaryLimit = WORLD_SIZE / 2 - 50;
         if (sub.object.position.x > boundaryLimit) sub.object.position.x = boundaryLimit;
@@ -846,9 +865,23 @@ function update(deltaTime) {
         if (sub.object.position.z > boundaryLimit) sub.object.position.z = boundaryLimit;
         if (sub.object.position.z < -boundaryLimit) sub.object.position.z = -boundaryLimit;
         
+        // Buoyancy and depth boundaries
+        if (sub.object.position.y < 0 && sub.object.position.y > -5) {
+            sub.object.position.y += 0.05; // Strong buoyancy near surface
+        } else if (sub.object.position.y < -5 && sub.object.position.y > -20) {
+            sub.object.position.y += 0.02; // Weaker buoyancy deeper
+        }
+        
+        // Surface boundary
+        if (sub.object.position.y > SURFACE_LEVEL) {
+            sub.object.position.y = SURFACE_LEVEL;
+            sub.targetPitch = 0; // Level out when at surface
+        }
+        
         // Ocean floor boundary
         if (sub.object.position.y < -OCEAN_DEPTH + 10) {
             sub.object.position.y = -OCEAN_DEPTH + 10;
+            sub.targetPitch = 0; // Level out when hitting ocean floor
         }
         
         // IMPROVED COLLISION DETECTION SYSTEM
@@ -923,15 +956,15 @@ function update(deltaTime) {
             }
         }
         
-        // Update camera position to follow submarine
+        // Update camera - always in third-person view now
         updateCamera();
         
-        // Update depth
+        // Update depth display
         sub.depth = Math.max(0, Math.floor(-sub.object.position.y));
         document.getElementById('depth-value').textContent = sub.depth;
         
         // Handle torpedo firing
-        if (game.keys[" "]) { // Space key
+        if (game.keys[" "] || game.mouse.leftButton) {
             const currentTime = Date.now();
             if (currentTime - sub.lastTorpedoTime > TORPEDO_COOLDOWN) {
                 createTorpedo();
@@ -939,10 +972,8 @@ function update(deltaTime) {
             }
         }
         
-        // Update torpedoes
+        // Update torpedoes and explosions
         updateTorpedoes(deltaTime);
-        
-        // Update explosions
         updateExplosions();
         
     } catch (error) {
@@ -955,33 +986,115 @@ function updateCamera() {
     try {
         if (!game.submarine.object) return;
         
-        // Calculate camera position behind and above submarine
         const sub = game.submarine.object;
         
-        // Get submarine's forward direction (consistent with movement direction)
+        // Always use third-person view
         const forwardDirection = new THREE.Vector3(0, 0, -1);
         forwardDirection.applyQuaternion(sub.quaternion);
         
-        // Position camera behind submarine (opposite of forward direction)
+        // Position camera behind and above submarine
         const cameraPosition = new THREE.Vector3();
         cameraPosition.copy(sub.position);
-        cameraPosition.addScaledVector(forwardDirection, -game.camera.followDistance); // Negative to go behind
+        
+        // Calculate position behind submarine
+        cameraPosition.addScaledVector(forwardDirection, -game.camera.followDistance);
+        
+        // Add height offset
         cameraPosition.y += game.camera.heightOffset;
         
         // Set camera position
         game.camera.main.position.copy(cameraPosition);
         
-        // Calculate look-at position (ahead of submarine in the direction it's facing)
-        const lookAtPosition = new THREE.Vector3();
-        lookAtPosition.copy(sub.position);
-        // Look slightly ahead of submarine
-        lookAtPosition.addScaledVector(forwardDirection, 5);
+        // Look ahead of submarine
+        const lookAtPoint = new THREE.Vector3().copy(sub.position);
+        lookAtPoint.addScaledVector(forwardDirection, 10);
         
-        // Make camera look at submarine
-        game.camera.main.lookAt(lookAtPosition);
+        game.camera.main.lookAt(lookAtPoint);
     } catch (error) {
         console.error('Error in updateCamera:', error);
     }
+}
+
+// Add UI elements for simplified controls
+function createUI() {
+    debug('Creating UI elements');
+    
+    // Create control indicator
+    const controlIndicator = document.createElement('div');
+    controlIndicator.className = 'control-indicator';
+    controlIndicator.textContent = 'Click to activate mouse control';
+    document.body.appendChild(controlIndicator);
+    
+    // Create propulsion indicator
+    const propulsionIndicator = document.createElement('div');
+    propulsionIndicator.className = 'propulsion-indicator';
+    document.body.appendChild(propulsionIndicator);
+    
+    const propulsionBar = document.createElement('div');
+    propulsionBar.className = 'propulsion-bar';
+    propulsionIndicator.appendChild(propulsionBar);
+    
+    // Show instructions initially
+    const instructions = document.getElementById('instructions');
+    if (instructions) {
+        instructions.classList.add('visible');
+        
+        // Add instructions toggle with H key
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'h' || e.key === 'H') {
+                instructions.classList.toggle('visible');
+            }
+        });
+        
+        // Auto-hide instructions after 10 seconds
+        setTimeout(() => {
+            instructions.classList.remove('visible');
+        }, 10000);
+    }
+    
+    debug('UI elements created');
+    
+    // Update function to keep UI elements in sync with game state
+    game.updateUI = function() {
+        // Update control indicator
+        if (game.submarine.mouseControlActive) {
+            controlIndicator.textContent = 'Mouse Control Active';
+        } else {
+            controlIndicator.textContent = 'Click to activate mouse control';
+        }
+        
+        // Update propulsion bar
+        const propulsion = game.submarine.propulsion;
+        // Center position is 50%
+        const centerPos = 50;
+        let barWidth, barTransform;
+        
+        if (propulsion > 0) {
+            // Forward propulsion - extend to the right from center
+            barWidth = centerPos + (propulsion / MAX_PROPULSION) * centerPos;
+            barTransform = 'translateX(0)';
+        } else if (propulsion < 0) {
+            // Backward propulsion - extend to the left from center
+            barWidth = centerPos - (propulsion / (-MAX_PROPULSION * 0.5)) * centerPos;
+            barTransform = `translateX(${100 - barWidth}%)`;
+        } else {
+            // No propulsion - just show center mark
+            barWidth = 2;
+            barTransform = 'translateX(49%)';
+        }
+        
+        propulsionBar.style.width = `${barWidth}%`;
+        propulsionBar.style.transform = barTransform;
+        
+        // Color changes based on direction
+        if (propulsion > 0) {
+            propulsionBar.style.backgroundColor = '#40E0D0'; // Cyan for forward
+        } else if (propulsion < 0) {
+            propulsionBar.style.backgroundColor = '#FF6347'; // Tomato for reverse
+        } else {
+            propulsionBar.style.backgroundColor = '#FFFFFF'; // White for neutral
+        }
+    };
 }
 
 // Initialize game
@@ -1001,6 +1114,10 @@ function initGame() {
         game.submarine.rotation = new THREE.Euler(0, 0, 0);
         game.submarine.velocity = new THREE.Vector3(0, 0, 0);
         game.submarine.depth = 0;
+        game.submarine.propulsion = 0;
+        game.submarine.targetPitch = 0;
+        game.submarine.targetYaw = 0;
+        game.submarine.mouseControlActive = false;
         game.gameOver = false;
         
         // Update UI
@@ -1021,6 +1138,12 @@ function initGame() {
         createWaterSurface();
         createOceanFloor();
         createSubmarine();
+        
+        // Create UI elements
+        createUI();
+        
+        // Initialize controls after creating submarine
+        initControls();
         
         // Start game loop
         if (!game.clock.running) {
@@ -1050,6 +1173,11 @@ function animate() {
         
         const deltaTime = game.clock.getDelta();
         update(deltaTime);
+        
+        // Update UI elements if function exists
+        if (game.updateUI) {
+            game.updateUI();
+        }
         
         // Render scene
         if (game.renderer && game.scene && game.camera.main) {
@@ -1180,10 +1308,40 @@ function createTorpedo() {
         // Play torpedo sound (if available)
         playSound('torpedo');
         
+        // Add muzzle flash effect
+        createMuzzleFlash(torpedoStartPos);
+        
         debug('Torpedo created');
         return torpedo;
     } catch (error) {
         console.error('Error in createTorpedo:', error);
+    }
+}
+
+// Create muzzle flash effect for torpedo launch
+function createMuzzleFlash(position) {
+    try {
+        // Create a point light for the flash
+        const flashLight = new THREE.PointLight(0x00FFFF, 5, 15);
+        flashLight.position.copy(position);
+        game.scene.add(flashLight);
+        
+        // Animate the flash
+        let intensity = 5;
+        const animateFlash = () => {
+            intensity -= 0.5;
+            if (intensity <= 0) {
+                game.scene.remove(flashLight);
+                return;
+            }
+            
+            flashLight.intensity = intensity;
+            requestAnimationFrame(animateFlash);
+        };
+        
+        animateFlash();
+    } catch (error) {
+        console.error('Error in createMuzzleFlash:', error);
     }
 }
 
@@ -1443,4 +1601,69 @@ function updateExplosions() {
     } catch (error) {
         console.error('Error in updateExplosions:', error);
     }
+}
+
+// Add mouse and pointer lock event listeners
+function initControls() {
+    debug('Initializing controls');
+    
+    // Mouse movement event listener
+    document.addEventListener('mousemove', (event) => {
+        if (document.pointerLockElement === game.renderer.domElement) {
+            game.submarine.mouseControlActive = true;
+            
+            // Store mouse movement for this frame
+            game.mouse.movementX = event.movementX;
+            game.mouse.movementY = event.movementY;
+        }
+    });
+    
+    // Pointer lock change event
+    document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== game.renderer.domElement) {
+            game.submarine.mouseControlActive = false;
+        }
+    });
+    
+    // Mouse button events
+    game.renderer.domElement.addEventListener('mousedown', (event) => {
+        if (event.button === 0) { // Left mouse button
+            game.mouse.leftButton = true;
+        } else if (event.button === 2) { // Right mouse button
+            game.mouse.rightButton = true;
+        }
+    });
+    
+    game.renderer.domElement.addEventListener('mouseup', (event) => {
+        if (event.button === 0) { // Left mouse button
+            game.mouse.leftButton = false;
+        } else if (event.button === 2) { // Right mouse button
+            game.mouse.rightButton = false;
+        }
+    });
+    
+    // Prevent right-click menu
+    game.renderer.domElement.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+    });
+    
+    // Simplified keyboard event listeners
+    window.addEventListener('keydown', (e) => {
+        if (game.keys.hasOwnProperty(e.key)) {
+            game.keys[e.key] = true;
+        }
+        
+        // Restart game with 'R' key when game over
+        if (e.key === 'r' && game.gameOver) {
+            initGame();
+        }
+    });
+    
+    window.addEventListener('keyup', (e) => {
+        if (game.keys.hasOwnProperty(e.key)) {
+            game.keys[e.key] = false;
+        }
+    });
+    
+    debug('Controls initialized');
 } 
