@@ -25,7 +25,7 @@ const TORPEDO_SPEED = 3.0;        // Speed of torpedoes
 const TORPEDO_LIFETIME = 5000;    // Torpedo lifetime in milliseconds
 const TORPEDO_COOLDOWN = 1000;    // Cooldown between torpedo shots in milliseconds
 const MOUSE_SENSITIVITY = 0.2;       // Sensitivity for mouse controls
-const MAX_PITCH_ANGLE = 0.4;         // Maximum pitch angle (radians)
+const MAX_PITCH_ANGLE = Math.PI/2;  // Increased to 90 degrees (straight down)
 const PROPULSION_ACCELERATION = 0.03; // How quickly the submarine accelerates
 const MAX_PROPULSION = 2.0;          // Maximum propulsion speed
 const PROPULSION_DECAY = 0.99;       // How quickly propulsion decays without input
@@ -42,7 +42,8 @@ const game = {
         propulsion: 0,                // Current propulsion level (-1 to 1)
         targetPitch: 0,               // Target pitch angle
         targetYaw: 0,                 // Target yaw angle
-        mouseControlActive: false     // Whether mouse control is currently active
+        mouseControlActive: false,     // Whether mouse control is currently active
+        rotationOrder: 'YXZ'           // Added for rotation order
     },
     camera: {
         main: null,
@@ -771,6 +772,18 @@ function createSubmarine() {
         };
         
         animatePropeller();
+        
+        // Set rotation order to YXZ to prevent gimbal lock issues and unwanted roll
+        submarine.rotation.order = 'YXZ';  // Apply yaw first, then pitch, then roll
+        
+        // Set initial rotation values
+        submarine.rotation.x = 0;  // Pitch
+        submarine.rotation.y = 0;  // Yaw
+        submarine.rotation.z = 0;  // Roll
+        
+        // Store the rotation order in the game state
+        game.submarine.rotationOrder = 'YXZ';
+        
         debug('Streamlined submarine created');
     } catch (error) {
         console.error('Error in createSubmarine:', error);
@@ -837,7 +850,7 @@ function update(deltaTime) {
             sub.targetYaw -= game.mouse.movementX * MOUSE_SENSITIVITY * 0.01;
             
             // Apply mouse movement to pitch (up/down angle)
-            sub.targetPitch -= game.mouse.movementY * MOUSE_SENSITIVITY * 0.01;
+            sub.targetPitch += game.mouse.movementY * MOUSE_SENSITIVITY * 0.01;  // Changed from -= to += for more intuitive controls
             
             // Clamp pitch to prevent flipping
             sub.targetPitch = Math.max(Math.min(sub.targetPitch, MAX_PITCH_ANGLE), -MAX_PITCH_ANGLE);
@@ -851,10 +864,10 @@ function update(deltaTime) {
         // Apply yaw (turning left/right)
         sub.object.rotation.y = sub.targetYaw;
         
-        // Smoothly interpolate current pitch toward target pitch
-        sub.object.rotation.x += (sub.targetPitch - sub.object.rotation.x) * 0.1;
+        // Apply pitch directly for more responsive control
+        sub.object.rotation.x = sub.targetPitch; // Changed from interpolation to direct assignment
         
-        // Keep roll at zero - we're not using roll
+        // Ensure roll is absolutely zero
         sub.object.rotation.z = 0;
         
         // 4. BOUNDARIES AND ENVIRONMENT INTERACTIONS
@@ -1111,13 +1124,14 @@ function initGame() {
         
         // Reset game state
         game.submarine.position = new THREE.Vector3(0, 0, 0);
-        game.submarine.rotation = new THREE.Euler(0, 0, 0);
+        game.submarine.rotation = new THREE.Euler(0, 0, 0, 'YXZ'); // Specify rotation order
         game.submarine.velocity = new THREE.Vector3(0, 0, 0);
         game.submarine.depth = 0;
         game.submarine.propulsion = 0;
         game.submarine.targetPitch = 0;
         game.submarine.targetYaw = 0;
         game.submarine.mouseControlActive = false;
+        game.submarine.rotationOrder = 'YXZ'; // Ensure rotation order is set
         game.gameOver = false;
         
         // Update UI
