@@ -2,17 +2,19 @@
 
 import * as THREE from 'three';
 import gameState from '../core/state.js';
-import { WORLD_SIZE, OCEAN_DEPTH, SURFACE_LEVEL } from '../core/constants.js';
+import { 
+    MOVEMENT_SPEED,
+    STRAFE_SPEED,
+    PROPULSION_ACCELERATION,
+    PROPULSION_DECAY,
+    MAX_PROPULSION,
+    GRAVITY,
+    MAX_PITCH_ANGLE,
+    OCEAN_DEPTH, 
+    SURFACE_LEVEL ,
+    WORLD_SIZE, 
+} from '../core/constants.js';
 import { createWaterSplash } from '../effects/waterEffects.js';
-
-// Constants for submarine physics
-const MOVEMENT_SPEED = 0.5;
-const STRAFE_SPEED = 0.3;
-const PROPULSION_ACCELERATION = 0.05;
-const PROPULSION_DECAY = 0.98;
-const MAX_PROPULSION = 1.0;
-const GRAVITY = 0.2;
-const MAX_PITCH_ANGLE = Math.PI / 6; // 30 degrees
 
 // Update submarine physics
 export function updateSubmarinePhysics(deltaTime) {
