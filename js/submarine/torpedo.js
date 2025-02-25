@@ -247,13 +247,10 @@ function removeTorpedoes(torpedoesToRemove) {
 }
 
 // Handle torpedo firing based on input
-export function handleTorpedoFiring(input) {
-    // Fire torpedo if space or left mouse button is pressed
-    if (input[" "] || input.leftButton) {
-        const currentTime = Date.now();
-        if (currentTime - gameState.submarine.lastTorpedoTime > TORPEDO_COOLDOWN) {
-            createTorpedo();
-            gameState.submarine.lastTorpedoTime = currentTime;
-        }
+export function handleTorpedoFiring() {
+    const currentTime = Date.now();
+    if (currentTime - gameState.submarine.lastTorpedoTime > TORPEDO_COOLDOWN) {
+        createTorpedo();
+        gameState.submarine.lastTorpedoTime = currentTime;
     }
 } 

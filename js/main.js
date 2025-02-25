@@ -108,14 +108,6 @@ function animate() {
     }
 }
 
-// Handle torpedo firing based on input
-function checkTorpedoFiring() {
-    // If space key is pressed and torpedo is ready
-    if (gameState.keys[' ']) {
-        handleTorpedoFiring();
-    }
-}
-
 // Handle window resize
 window.addEventListener('resize', () => {
     if (gameState.camera.main && gameState.renderer) {
