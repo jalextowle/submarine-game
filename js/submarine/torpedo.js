@@ -186,9 +186,21 @@ export function updateTorpedoes(deltaTime) {
             const pos = torpedo.object.position;
             const boundaryLimit = WORLD_SIZE / 2;
             if (Math.abs(pos.x) > boundaryLimit || 
-                Math.abs(pos.z) > boundaryLimit ||
-                pos.y < -OCEAN_DEPTH || 
-                pos.y > SURFACE_LEVEL) {
+                Math.abs(pos.z) > boundaryLimit) {
+                torpedoesToRemove.push(index);
+                return;
+            }
+            
+            // Check ocean depth boundary - create explosion on ocean floor
+            if (pos.y < -OCEAN_DEPTH + 5) {
+                // Create explosion on ocean floor
+                createExplosion(pos.clone());
+                torpedoesToRemove.push(index);
+                return;
+            }
+            
+            // Check surface boundary
+            if (pos.y > SURFACE_LEVEL) {
                 torpedoesToRemove.push(index);
                 return;
             }
