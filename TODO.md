@@ -1,6 +1,13 @@
+# Bugs
+
+These are the fixes that annoyed me at the end of the last session.
+
+- [ ] Figure out why height goes from 10m to 0m when the submarine crashes onto the water.
+- [ ] Fix the propellers speed so that it matches the propulsion.
+
 # Submarine Game - Future Enhancements
 
-This document tracks planned improvements and features for the submarine game.
+These are the features I should add in the short to medium term.
 
 ## Control Improvements
 

@@ -14,7 +14,7 @@ const gameState = {
         lastTorpedoTime: 0,
         propulsion: 0,                // Current propulsion level (-1 to 1)
         targetPitch: 0,               // Target pitch angle
-        targetYaw: 0,                 // Target yaw angle
+        targetYaw: Math.PI,           // Target yaw angle - start facing away from camera
         mouseControlActive: false,     // Whether mouse control is currently active
         rotationOrder: 'YXZ',           // Added for rotation order
         isAirborne: false              // Flag to track if submarine is above water
@@ -58,7 +58,7 @@ export function resetGameState() {
     gameState.submarine.depth = 0;
     gameState.submarine.propulsion = 0;
     gameState.submarine.targetPitch = 0;
-    gameState.submarine.targetYaw = 0;
+    gameState.submarine.targetYaw = Math.PI; // Reset to face away from camera
     gameState.submarine.mouseControlActive = false;
     gameState.submarine.isAirborne = false;
     

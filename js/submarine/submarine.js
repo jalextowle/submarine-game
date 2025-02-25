@@ -9,13 +9,13 @@ import { createPropeller, animatePropeller } from './propeller.js';
 export function createSubmarine() {
     debug('Creating submarine');
     try {
-        // Create a more streamlined military-style submarine
+        // Create a simplified submarine
         
         // Create a submarine group
         const submarine = new THREE.Group();
         
-        // --- MAIN HULL (longer and more streamlined) ---
-        const hullLength = 25; // Increased length
+        // --- MAIN HULL (simplified) ---
+        const hullLength = 20; // Slightly reduced length
         const hullRadius = 2;
         
         // Main pressure hull
@@ -25,53 +25,47 @@ export function createSubmarine() {
             roughness: 0.4
         });
         
-        // Main pressure hull (middle section)
+        // Main pressure hull (single piece)
         const mainHullGeometry = new THREE.CylinderGeometry(hullRadius, hullRadius, hullLength * 0.7, 32);
         const mainHull = new THREE.Mesh(mainHullGeometry, mainHullMaterial);
         mainHull.rotation.x = Math.PI / 2; // Align with Z-axis
         
-        // Forward hull section (tapered)
-        const forwardHullGeometry = new THREE.CylinderGeometry(hullRadius, hullRadius * 0.6, hullLength * 0.2, 32);
+        // Calculate the exact position where the main hull ends
+        const mainHullHalfLength = hullLength * 0.7 / 2;
+        
+        // Forward hull section (tapered) - FRONT of submarine (positive Z)
+        const forwardHullGeometry = new THREE.ConeGeometry(hullRadius, hullLength * 0.2, 32);
         const forwardHull = new THREE.Mesh(forwardHullGeometry, mainHullMaterial);
         forwardHull.rotation.x = Math.PI / 2;
-        forwardHull.position.z = hullLength * 0.43;
+        // Position exactly at the end of the main hull
+        forwardHull.position.z = mainHullHalfLength + (hullLength * 0.2 / 2);
         
-        // Bow section (pointed)
-        const bowGeometry = new THREE.ConeGeometry(hullRadius * 0.6, hullLength * 0.1, 32);
-        const bow = new THREE.Mesh(bowGeometry, mainHullMaterial);
-        bow.rotation.x = -Math.PI / 2;
-        bow.position.z = hullLength * 0.58;
+        // Rear hull section (tapered) - BACK of submarine (negative Z)
+        const rearHullGeometry = new THREE.ConeGeometry(hullRadius, hullLength * 0.15, 32);
+        const rearHull = new THREE.Mesh(rearHullGeometry, mainHullMaterial);
+        rearHull.rotation.x = -Math.PI / 2;
+        // Position exactly at the end of the main hull
+        rearHull.position.z = -mainHullHalfLength - (hullLength * 0.15 / 2);
         
-        // Aft hull section (tapered)
-        const aftHullGeometry = new THREE.CylinderGeometry(hullRadius * 0.75, hullRadius, hullLength * 0.15, 32);
-        const aftHull = new THREE.Mesh(aftHullGeometry, mainHullMaterial);
-        aftHull.rotation.x = Math.PI / 2;
-        aftHull.position.z = -hullLength * 0.42;
-        
-        // Stern section (rounded)
-        const sternGeometry = new THREE.SphereGeometry(hullRadius * 0.75, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-        const stern = new THREE.Mesh(sternGeometry, mainHullMaterial);
-        stern.rotation.x = Math.PI;
-        stern.position.z = -hullLength * 0.5;
-        
-        // --- CONNING TOWER (SAIL) ---
+        // --- CONNING TOWER (SAIL) --- (at the FRONT half)
         const towerMaterial = new THREE.MeshStandardMaterial({ 
             color: 0x1C2529, // Slightly darker than hull
             metalness: 0.6,
             roughness: 0.3
         });
         
-        // Streamlined sail shape
+        // Streamlined sail shape (positioned toward FRONT)
         const sailGeometry = new THREE.BoxGeometry(2, 3, 7);
         const sail = new THREE.Mesh(sailGeometry, towerMaterial);
         sail.position.y = hullRadius + 1.5;
+        sail.position.z = hullLength * 0.1; // Positioned toward front half
         
         // Rounded front of sail
         const sailFrontGeometry = new THREE.CylinderGeometry(1, 1, 3, 16, 1, false, -Math.PI/2, Math.PI);
         const sailFront = new THREE.Mesh(sailFrontGeometry, towerMaterial);
         sailFront.rotation.x = Math.PI / 2;
         sailFront.position.y = hullRadius + 1.5;
-        sailFront.position.z = 3.5;
+        sailFront.position.z = hullLength * 0.1 + 3.5; // Match sail position + offset
         
         // Single periscope
         const periscopeMaterial = new THREE.MeshStandardMaterial({ 
@@ -83,7 +77,21 @@ export function createSubmarine() {
         const periscopeGeometry = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
         const periscope = new THREE.Mesh(periscopeGeometry, periscopeMaterial);
         periscope.position.y = hullRadius + 4;
-        periscope.position.z = 2;
+        periscope.position.z = hullLength * 0.1 + 2; // Match sail position + offset
+        
+        // --- ADD PROPELLER SHAFT TO MAKE IT OBVIOUS --- (at the BACK)
+        const shaftMaterial = new THREE.MeshStandardMaterial({
+            color: 0x555555,
+            metalness: 0.9,
+            roughness: 0.2
+        });
+        
+        // Smaller and shorter propeller shaft
+        const shaftGeometry = new THREE.CylinderGeometry(0.15, 0.15, 1.2, 16);
+        const propellerShaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+        propellerShaft.rotation.x = Math.PI / 2;
+        // Position closer to the rear cone
+        propellerShaft.position.z = -mainHullHalfLength - hullLength * 0.12;
         
         // --- CONTROL SURFACES ---
         addControlSurfaces(submarine, hullLength);
@@ -91,22 +99,28 @@ export function createSubmarine() {
         // --- WINDOWS ---
         addWindows(sail);
         
-        // --- PROPELLER ---
+        // --- PROPELLER --- (clearly at the BACK of submarine)
+        // Create realistic propeller with proper positioning
         const propHub = createPropeller(hullLength);
+        // Position propeller right behind the shaft
+        propHub.position.z = -mainHullHalfLength - hullLength * 0.18;
+        propHub.rotation.z = Math.PI / 2; // Proper propeller facing
+        propHub.scale.set(0.8, 0.8, 0.8); // Scaled down from 2.5 to 0.8 (more than 3x smaller)
+        
+        // Add lighting to make propeller more visible
+        const propellerLight = new THREE.PointLight(0xFFCC88, 1, 10);
+        propellerLight.position.set(0, 0, -mainHullHalfLength - hullLength * 0.18);
+        submarine.add(propellerLight);
         
         // --- Add all components to submarine group ---
         submarine.add(mainHull);
         submarine.add(forwardHull);
-        submarine.add(bow);
-        submarine.add(aftHull);
-        submarine.add(stern);
+        submarine.add(rearHull);
         submarine.add(sail);
         submarine.add(sailFront);
         submarine.add(periscope);
+        submarine.add(propellerShaft);
         submarine.add(propHub);
-        
-        // Add weathering effects
-        addWeatheringEffects(submarine, hullRadius, hullLength);
         
         // Add submarine to scene
         gameState.scene.add(submarine);
@@ -114,23 +128,31 @@ export function createSubmarine() {
         
         // Position submarine and set initial rotation
         submarine.position.set(0, 0, 0);
-        submarine.rotation.y = 0; // Submarine directly faces into screen
+        
+        // IMPORTANT: Set rotation order BEFORE applying rotations to prevent issues
+        submarine.rotation.order = 'YXZ';  // Apply yaw first, then pitch, then roll
+        
+        // Apply negative Z scale to flip the submarine model
+        submarine.scale.set(1, 1, -1);
+        
+        // Keep the original rotation
+        submarine.rotation.set(0, Math.PI, 0);
+        
+        // Explicitly set the targetYaw in the gameState to match our rotation
+        gameState.submarine.targetYaw = Math.PI;
+        
+        // Explicitly ensure these rotations are applied immediately
+        submarine.updateMatrix();
+        submarine.updateMatrixWorld(true);
         
         // Start propeller animation
         animatePropeller(propHub);
         
-        // Set rotation order to YXZ to prevent gimbal lock issues and unwanted roll
-        submarine.rotation.order = 'YXZ';  // Apply yaw first, then pitch, then roll
-        
-        // Set initial rotation values
-        submarine.rotation.x = 0;  // Pitch
-        submarine.rotation.y = 0;  // Yaw
-        submarine.rotation.z = 0;  // Roll
-        
-        // Store the rotation order in the game state
+        // Store the rotation order and initial values in the game state
         gameState.submarine.rotationOrder = 'YXZ';
+        gameState.submarine.initialYaw = Math.PI;
         
-        debug('Streamlined submarine created');
+        debug('Submarine flipped along Z-axis to reverse direction');
         return submarine;
     } catch (error) {
         console.error('Error in createSubmarine:', error);
@@ -159,17 +181,17 @@ function addControlSurfaces(submarine, hullLength) {
     const sternPlaneGeometry = new THREE.BoxGeometry(6, 0.3, 1.5);
     const sternPlaneLeft = new THREE.Mesh(sternPlaneGeometry, controlSurfaceMaterial);
     sternPlaneLeft.position.x = -3;
-    sternPlaneLeft.position.z = -hullLength * 0.3;
+    sternPlaneLeft.position.z = -hullLength * 0.25;
     
     const sternPlaneRight = new THREE.Mesh(sternPlaneGeometry, controlSurfaceMaterial);
     sternPlaneRight.position.x = 3;
-    sternPlaneRight.position.z = -hullLength * 0.3;
+    sternPlaneRight.position.z = -hullLength * 0.25;
     
     // Single rudder (simplified)
     const rudderGeometry = new THREE.BoxGeometry(0.3, 3, 2);
     const rudder = new THREE.Mesh(rudderGeometry, controlSurfaceMaterial);
     rudder.position.y = 0;
-    rudder.position.z = -hullLength * 0.45;
+    rudder.position.z = -hullLength * 0.3;
     
     // Add all control surfaces to submarine
     submarine.add(bowPlaneLeft);
@@ -197,37 +219,5 @@ function addWindows(sail) {
         windowPane.position.y = 1.8;
         windowPane.position.x = i * 0.7 - 0.3;
         sail.add(windowPane);
-    }
-}
-
-// Add weathering effects to submarine hull
-function addWeatheringEffects(submarine, hullRadius, hullLength) {
-    // Just a few subtle weathering effects
-    for (let i = 0; i < 8; i++) {
-        const weatheringSize = Math.random() * 2 + 1;
-        const weatheringGeometry = new THREE.CircleGeometry(weatheringSize, 8);
-        const weatheringMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0x202020, 
-            transparent: true,
-            opacity: 0.3,
-            side: THREE.DoubleSide
-        });
-        
-        const weatheringMark = new THREE.Mesh(weatheringGeometry, weatheringMaterial);
-        
-        // Position randomly on hull
-        const angle = Math.random() * Math.PI * 2;
-        const heightPos = Math.random() * hullLength - hullLength / 2;
-        
-        weatheringMark.position.x = Math.cos(angle) * hullRadius;
-        weatheringMark.position.y = Math.sin(angle) * hullRadius;
-        weatheringMark.position.z = heightPos;
-        
-        // Align with hull surface
-        weatheringMark.lookAt(weatheringMark.position.clone().add(
-            new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0)
-        ));
-        
-        submarine.add(weatheringMark);
     }
 } 
