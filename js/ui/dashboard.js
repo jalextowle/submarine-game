@@ -2,97 +2,36 @@
 
 import { debug } from '../core/debug.js';
 import gameState from '../core/state.js';
-import { TORPEDO_COOLDOWN } from '../core/constants.js';
+import { TORPEDO_COOLDOWN, SURFACE_LEVEL } from '../core/constants.js';
 
-// Create the in-game UI dashboard
+// Create the in-game UI dashboard - now disabled to avoid duplication
 export function createDashboard() {
-    debug('Creating dashboard UI');
+    debug('Using original HTML dashboard only');
     
-    try {
-        // Create dashboard container
-        const dashboard = document.createElement('div');
-        dashboard.id = 'dashboard';
-        dashboard.innerHTML = `
-            <div class="dashboard-panel">
-                <div class="dashboard-section">
-                    <h3>Depth</h3>
-                    <div id="depth-value" class="value">0 m</div>
-                    <div id="depth-gauge" class="gauge">
-                        <div id="depth-gauge-fill" class="gauge-fill"></div>
-                    </div>
-                </div>
-                <div class="dashboard-section">
-                    <h3>Torpedo</h3>
-                    <div id="torpedo-status" class="status ready">READY</div>
-                    <div id="torpedo-cooldown" class="gauge">
-                        <div id="torpedo-cooldown-fill" class="gauge-fill"></div>
-                    </div>
-                </div>
-                <div class="dashboard-section">
-                    <h3>Propulsion</h3>
-                    <div id="propulsion-value" class="value">0%</div>
-                    <div id="propulsion-gauge" class="gauge">
-                        <div id="propulsion-gauge-fill" class="gauge-fill"></div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(dashboard);
-        
-        // Store the updateUI function in the game state for use in the game loop
-        gameState.updateUI = updateDashboard;
-        
-        debug('Dashboard UI created');
-    } catch (error) {
-        console.error('Error in createDashboard:', error);
-    }
+    // Store the updateUI function in the game state for use in the game loop
+    gameState.updateUI = updateDashboard;
+    
+    debug('Dashboard configuration complete');
 }
 
-// Update the dashboard with current game state
+// Update only the original depth meter from HTML
 export function updateDashboard() {
     try {
-        if (!document.getElementById('depth-value')) return;
+        // Get depth-value element from the original HTML
+        const depthValueElement = document.getElementById('depth-value');
+        if (!depthValueElement) return;
         
-        // Update depth display
-        const depth = Math.max(0, Math.floor(-gameState.submarine.object.position.y));
-        document.getElementById('depth-value').textContent = `${depth} m`;
-        
-        // Update depth gauge
-        const depthPercentage = Math.min(100, (depth / 500) * 100);
-        document.getElementById('depth-gauge-fill').style.width = `${depthPercentage}%`;
-        
-        // Update torpedo status
-        const currentTime = Date.now();
-        const timeSinceLastTorpedo = currentTime - gameState.submarine.lastTorpedoTime;
-        const torpedoReady = timeSinceLastTorpedo >= TORPEDO_COOLDOWN;
-        
-        if (torpedoReady) {
-            document.getElementById('torpedo-status').textContent = 'READY';
-            document.getElementById('torpedo-status').className = 'status ready';
-            document.getElementById('torpedo-cooldown-fill').style.width = '100%';
+        // Update depth or height display
+        if (gameState.submarine.isAirborne) {
+            // When above water, show height as a positive number
+            const height = Math.floor(gameState.submarine.object.position.y);
+            depthValueElement.textContent = height;
         } else {
-            document.getElementById('torpedo-status').textContent = 'RELOADING';
-            document.getElementById('torpedo-status').className = 'status loading';
-            
-            // Update cooldown gauge
-            const cooldownPercentage = (timeSinceLastTorpedo / TORPEDO_COOLDOWN) * 100;
-            document.getElementById('torpedo-cooldown-fill').style.width = `${cooldownPercentage}%`;
+            // When underwater, show depth as usual
+            const depth = Math.max(0, Math.floor(-gameState.submarine.object.position.y));
+            depthValueElement.textContent = depth;
         }
         
-        // Update propulsion display
-        const propulsionPercentage = Math.floor((gameState.submarine.propulsion / 2) * 100);
-        document.getElementById('propulsion-value').textContent = `${propulsionPercentage}%`;
-        
-        // Update propulsion gauge
-        document.getElementById('propulsion-gauge-fill').style.width = `${Math.abs(propulsionPercentage)}%`;
-        
-        // Change color for reverse propulsion
-        if (gameState.submarine.propulsion < 0) {
-            document.getElementById('propulsion-gauge-fill').className = 'gauge-fill reverse';
-        } else {
-            document.getElementById('propulsion-gauge-fill').className = 'gauge-fill';
-        }
     } catch (error) {
         console.error('Error in updateDashboard:', error);
     }
@@ -107,7 +46,7 @@ export function showMessage(message, duration = 3000) {
         if (!messageElement) {
             messageElement = document.createElement('div');
             messageElement.id = 'dashboard-message';
-            document.getElementById('dashboard').appendChild(messageElement);
+            document.body.appendChild(messageElement);
         }
         
         // Set message and show
