@@ -40,6 +40,29 @@ export function createOceanFloor() {
     }
 }
 
+// Function to get the height of the terrain at a specific X,Z position
+// This is used for collision detection with the seafloor
+export function getTerrainHeightAtPosition(x, z) {
+    try {
+        // Calculate terrain height using the same Perlin noise function used to create the terrain
+        const noiseValue = perlinNoise.octaveNoise2D(
+            x * TERRAIN_SCALE,
+            z * TERRAIN_SCALE,
+            TERRAIN_OCTAVES,
+            TERRAIN_PERSISTENCE
+        );
+        
+        // Apply the same scaling and offset used in terrain creation
+        const terrainHeight = noiseValue * TERRAIN_HEIGHT - TERRAIN_OFFSET;
+        
+        // Return the actual Y position by adding the terrain height to the ocean depth
+        return -OCEAN_DEPTH + terrainHeight;
+    } catch (error) {
+        console.error('Error calculating terrain height:', error);
+        return -OCEAN_DEPTH; // Fallback to base ocean depth
+    }
+}
+
 // Create procedural sand textures
 function createSandTextures() {
     // Create procedural sand texture

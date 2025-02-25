@@ -15,6 +15,7 @@ import {
     WORLD_SIZE, 
 } from '../core/constants.js';
 import { createWaterSplash } from '../effects/waterEffects.js';
+import { getTerrainHeightAtPosition } from '../environment/oceanFloor.js';
 
 // Update submarine physics
 export function updateSubmarinePhysics(deltaTime) {
@@ -108,10 +109,27 @@ function applyBuoyancyAndDepth(sub, deltaTime) {
         sub.fallingVelocity = 0;
     }
     
-    // Ocean floor boundary
-    if (sub.object.position.y < -OCEAN_DEPTH + 10) {
-        sub.object.position.y = -OCEAN_DEPTH + 10;
-        sub.targetPitch = 0; // Level out when hitting ocean floor
+    // Get terrain height at current submarine position
+    const terrainHeight = getTerrainHeightAtPosition(sub.object.position.x, sub.object.position.z);
+    
+    // Add a small buffer (collision clearance) to prevent clipping
+    const collisionBuffer = 5; 
+    
+    // Ocean floor boundary - use actual terrain height
+    if (sub.object.position.y < terrainHeight + collisionBuffer) {
+        sub.object.position.y = terrainHeight + collisionBuffer;
+        
+        // Level out when hitting ocean floor to prevent continuous collision
+        sub.targetPitch = Math.max(0, sub.targetPitch);
+        
+        // Optional: Add visual feedback for collision with ocean floor
+        if (!sub.floorCollision) {
+            sub.floorCollision = true;
+            console.log('Submarine collided with ocean floor');
+            // Could trigger particles, sound, or camera shake here
+        }
+    } else {
+        sub.floorCollision = false;
     }
     
     // Update depth value
