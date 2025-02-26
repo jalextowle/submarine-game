@@ -15,6 +15,7 @@ import {
     WORLD_SIZE, 
 } from '../core/constants.js';
 import { createWaterSplash } from '../effects/waterEffects.js';
+import { createSandCloud } from '../effects/terrainEffects.js';
 import { getTerrainHeightAtPosition } from '../environment/oceanFloor.js';
 
 // Update submarine physics
@@ -117,16 +118,35 @@ function applyBuoyancyAndDepth(sub, deltaTime) {
     
     // Ocean floor boundary - use actual terrain height
     if (sub.object.position.y < terrainHeight + collisionBuffer) {
+        // Calculate impact velocity - used to determine intensity of sand cloud
+        const impactSpeed = sub.object.position.y - (terrainHeight + collisionBuffer);
+        const impactIntensity = Math.min(Math.abs(impactSpeed) * 3, 3); // Scale and cap intensity
+        
+        // Adjust position to be above the terrain
         sub.object.position.y = terrainHeight + collisionBuffer;
         
         // Level out when hitting ocean floor to prevent continuous collision
         sub.targetPitch = Math.max(0, sub.targetPitch);
         
-        // Optional: Add visual feedback for collision with ocean floor
+        // Visual feedback for collision with ocean floor
         if (!sub.floorCollision) {
             sub.floorCollision = true;
-            console.log('Submarine collided with ocean floor');
-            // Could trigger particles, sound, or camera shake here
+            console.log(`Submarine collided with ocean floor - Impact: ${impactIntensity.toFixed(2)}`);
+            
+            // Create sand cloud effect at the impact point
+            // Position the effect slightly below the submarine
+            const effectPosition = sub.object.position.clone();
+            effectPosition.y = terrainHeight;
+            
+            // Create a stronger effect if impact velocity is higher
+            if (impactIntensity > 0.2) {
+                createSandCloud(effectPosition, 2 + impactIntensity * 0.5, impactIntensity);
+                
+                // Add camera shake effect based on impact intensity
+                if (gameState.camera && impactIntensity > 0.7) {
+                    addCameraShake(impactIntensity);
+                }
+            }
         }
     } else {
         sub.floorCollision = false;
@@ -134,6 +154,53 @@ function applyBuoyancyAndDepth(sub, deltaTime) {
     
     // Update depth value
     sub.depth = Math.floor(-sub.object.position.y);
+}
+
+// Add camera shake effect on impact
+function addCameraShake(intensity) {
+    // Store original camera position
+    if (!gameState.camera.userData.originalPosition) {
+        gameState.camera.userData.originalPosition = gameState.camera.position.clone();
+    }
+    
+    // Set shake parameters
+    const duration = 500; // milliseconds
+    const startTime = Date.now();
+    const maxShake = 0.1 * Math.min(intensity, 3); // Limit maximum shake
+    
+    // Clear any existing shake animation
+    if (gameState.cameraShakeAnimationId) {
+        cancelAnimationFrame(gameState.cameraShakeAnimationId);
+    }
+    
+    // Animate camera shake
+    const shakeCamera = () => {
+        const elapsed = Date.now() - startTime;
+        
+        if (elapsed > duration) {
+            // Reset camera position when done
+            if (gameState.camera.userData.originalPosition) {
+                gameState.camera.position.copy(gameState.camera.userData.originalPosition);
+            }
+            return;
+        }
+        
+        // Calculate shake amount that decreases over time
+        const shakeAmount = maxShake * (1 - elapsed / duration);
+        
+        // Apply random offset to camera position
+        const originalPos = gameState.camera.userData.originalPosition;
+        gameState.camera.position.set(
+            originalPos.x + (Math.random() - 0.5) * shakeAmount,
+            originalPos.y + (Math.random() - 0.5) * shakeAmount,
+            originalPos.z + (Math.random() - 0.5) * shakeAmount
+        );
+        
+        // Continue animation
+        gameState.cameraShakeAnimationId = requestAnimationFrame(shakeCamera);
+    };
+    
+    shakeCamera();
 }
 
 // Check for surface transitions (entering/exiting water)

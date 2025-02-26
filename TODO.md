@@ -4,6 +4,17 @@ These are the fixes that annoyed me at the end of the last session.
 
 - [ ] Figure out why height goes from 10m to 0m when the submarine crashes onto the water.
 - [ ] Fix the propellers speed so that it matches the propulsion.
+- [ ] Make the world bigger
+- [ ] Add more interesting terrain like trenches, continental shelfs, islands, and volcanoes.
+
+# Testing
+
+- [ ] Create a list of things to test.
+   - [ ] Basic motion
+   - [ ] Collision detection with rocks and terrain.
+   - [ ] Torpedo controls and effects 
+   - [ ] Water splashes and sand effects
+   - [ ] Jump physics
 
 # Submarine Game - Future Enhancements
 
