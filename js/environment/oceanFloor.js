@@ -19,6 +19,9 @@ import perlinNoise from '../utils/perlinNoise.js';
 let sandTexture, sandBumpMap;
 let oceanFloorMaterial;
 
+// Cache for the dynamically imported worldChunks module
+let worldChunksModule = null;
+
 // Create the ocean floor with procedural textures
 export function createOceanFloor() {
     debug('Creating ocean floor');
@@ -60,10 +63,16 @@ export function getTerrainHeightAtPosition(x, z) {
     try {
         // If we have a chunk system initialized, defer to it for infinite terrain height
         if (gameState.chunkSystem) {
-            // Import dynamically to avoid circular dependency
-            return import('./worldChunks.js').then(module => {
-                return module.getInfiniteTerrainHeightAtPosition(x, z);
-            });
+            // Use cached module if available
+            if (worldChunksModule) {
+                return Promise.resolve(worldChunksModule.getInfiniteTerrainHeightAtPosition(x, z));
+            } else {
+                // Import dynamically to avoid circular dependency and cache for future use
+                return import('./worldChunks.js').then(module => {
+                    worldChunksModule = module; // Cache the module
+                    return module.getInfiniteTerrainHeightAtPosition(x, z);
+                });
+            }
         }
         
         // Fallback to standard terrain height calculation

@@ -108,8 +108,27 @@ function applyBuoyancyAndDepth(sub, deltaTime) {
     }
     
     // Get terrain height at current submarine position
-    const terrainHeight = getTerrainHeightAtPosition(sub.object.position.x, sub.object.position.z);
+    const terrainHeightResult = getTerrainHeightAtPosition(sub.object.position.x, sub.object.position.z);
     
+    // Handle both Promise and direct value from getTerrainHeightAtPosition
+    if (terrainHeightResult instanceof Promise) {
+        // If it's a Promise (infinite terrain), process collision in the next frame
+        terrainHeightResult.then(terrainHeight => {
+            processTerrainCollision(sub, terrainHeight);
+        }).catch(error => {
+            console.error('Error getting terrain height:', error);
+        });
+    } else {
+        // Direct value (finite terrain) - process collision immediately
+        processTerrainCollision(sub, terrainHeightResult);
+    }
+    
+    // Update depth value
+    sub.depth = Math.floor(-sub.object.position.y);
+}
+
+// Helper function to process terrain collision
+function processTerrainCollision(sub, terrainHeight) {
     // Add a small buffer (collision clearance) to prevent clipping
     const collisionBuffer = 5; 
     
@@ -148,9 +167,6 @@ function applyBuoyancyAndDepth(sub, deltaTime) {
     } else {
         sub.floorCollision = false;
     }
-    
-    // Update depth value
-    sub.depth = Math.floor(-sub.object.position.y);
 }
 
 // Add camera shake effect on impact
