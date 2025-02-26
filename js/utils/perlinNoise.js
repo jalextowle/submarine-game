@@ -2,7 +2,7 @@
 
 // A simple implementation of Perlin noise
 class PerlinNoise {
-    constructor(seed = Math.random()) {
+    constructor(seed = 12345) {  // Fixed seed for deterministic generation
         this.seed = seed;
         this.permutation = this.generatePermutation();
     }
@@ -94,8 +94,14 @@ class PerlinNoise {
 
         return total / maxValue;
     }
+    
+    // Get an integer hash value for a chunk position
+    // Used for deterministic chunk generation
+    getPositionHash(x, z) {
+        return ((x * 73856093) ^ (z * 19349663)) & 0x7fffffff;
+    }
 }
 
 // Create and export a singleton instance
-const perlinNoise = new PerlinNoise();
+const perlinNoise = new PerlinNoise(12345); // Fixed seed for consistent generation
 export default perlinNoise; 

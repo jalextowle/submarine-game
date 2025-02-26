@@ -10,9 +10,10 @@ import { initScene } from './scene/scene.js';
 import { setupCamera, updateCamera } from './scene/camera.js';
 
 // Environment imports
-import { createWaterSurface } from './environment/water.js';
+import { createWaterSurface, updateWaterPosition } from './environment/water.js';
 import { createOceanFloor, debugTerrain } from './environment/oceanFloor.js';
 import { createObstacles, checkObstacleCollisions } from './environment/obstacles.js';
+import { initChunkedWorld, updateChunks } from './environment/worldChunks.js';
 
 // Submarine imports
 import { createSubmarine } from './submarine/submarine.js';
@@ -55,13 +56,16 @@ export function initGame() {
         createInstructions();
         createDashboard();
         
+        // Initialize the infinite chunked world system
+        initChunkedWorld();
+        
         // Add debug controls
         setupDebugControls();
         
         // Start the game loop
         animate();
         
-        debug('Game initialized');
+        debug('Game initialized with infinite world');
     } catch (error) {
         console.error('Error in initGame:', error);
     }
@@ -105,6 +109,14 @@ function animate() {
         
         // Update explosions
         updateExplosions();
+        
+        // Update chunks for infinite world
+        if (gameState.chunkSystem) {
+            updateChunks();
+        }
+        
+        // Update water position to follow submarine
+        updateWaterPosition();
         
         // Update UI
         if (gameState.updateUI) {

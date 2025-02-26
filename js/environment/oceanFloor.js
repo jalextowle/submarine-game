@@ -15,26 +15,40 @@ import {
 import { createObstacles } from './obstacles.js';
 import perlinNoise from '../utils/perlinNoise.js';
 
+// Created shared materials to avoid duplicate material creation
+let sandTexture, sandBumpMap;
+let oceanFloorMaterial;
+
 // Create the ocean floor with procedural textures
 export function createOceanFloor() {
     debug('Creating ocean floor');
     try {
-        // Create sand textures
-        const { sandTexture, sandBumpMap } = createSandTextures();
+        // Create sand textures if they don't exist
+        if (!sandTexture || !sandBumpMap) {
+            const textures = createSandTextures();
+            sandTexture = textures.sandTexture;
+            sandBumpMap = textures.sandBumpMap;
+            
+            // Create material for ocean floor
+            oceanFloorMaterial = new THREE.MeshStandardMaterial({
+                color: 0xEADAB5, // Light sandy beige
+                roughness: 1.0,
+                metalness: 0.0, // No metalness for sand
+                map: sandTexture,
+                bumpMap: sandBumpMap,
+                bumpScale: 0.3,
+                emissive: 0xEADAB5, // Match base color for subtle light contribution
+                emissiveIntensity: 0.05 // Very subtle glow
+            });
+        }
         
         // Create base floor (flat, large area)
-        createBaseFloor(sandTexture, sandBumpMap);
-        
-        // Create detailed floor with terrain
-        createDetailedFloor(sandTexture, sandBumpMap);
+        createBaseFloor(oceanFloorMaterial);
         
         // Add floor lighting
         addOceanFloorLighting();
         
-        // Create obstacles (rocks)
-        createObstacles();
-        
-        debug('Realistic sandy ocean floor created');
+        debug('Base ocean floor created. Detailed terrain will be generated in chunks.');
     } catch (error) {
         console.error('Error in createOceanFloor:', error);
     }
@@ -44,7 +58,15 @@ export function createOceanFloor() {
 // This is used for collision detection with the seafloor
 export function getTerrainHeightAtPosition(x, z) {
     try {
-        // Calculate terrain height using the same Perlin noise function used to create the terrain
+        // If we have a chunk system initialized, defer to it for infinite terrain height
+        if (gameState.chunkSystem) {
+            // Import dynamically to avoid circular dependency
+            return import('./worldChunks.js').then(module => {
+                return module.getInfiniteTerrainHeightAtPosition(x, z);
+            });
+        }
+        
+        // Fallback to standard terrain height calculation
         const noiseValue = perlinNoise.octaveNoise2D(
             x * TERRAIN_SCALE,
             z * TERRAIN_SCALE,
@@ -171,215 +193,124 @@ function createSandTextures() {
 }
 
 // Create large flat base floor
-function createBaseFloor(sandTexture, sandBumpMap) {
-    const baseFloorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 4, WORLD_SIZE * 4);
-    const baseFloorMaterial = new THREE.MeshStandardMaterial({
-        color: 0xEADAB5, // Light sandy beige
-        roughness: 1.0,
-        metalness: 0.0, // No metalness for sand
-        map: sandTexture,
-        bumpMap: sandBumpMap,
-        bumpScale: 0.3,
-        emissive: 0xEADAB5, // Match base color for subtle light contribution
-        emissiveIntensity: 0.05 // Very subtle glow
-    });
+function createBaseFloor(material) {
+    // Create a much larger base floor that extends far beyond the detailed chunks
+    const baseFloorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 10, WORLD_SIZE * 10);
     
-    const baseFloor = new THREE.Mesh(baseFloorGeometry, baseFloorMaterial);
+    const baseFloor = new THREE.Mesh(baseFloorGeometry, material);
     baseFloor.rotation.x = -Math.PI / 2;
-    baseFloor.position.y = -OCEAN_DEPTH - 1; // Slightly below the detailed floor
+    baseFloor.position.y = -OCEAN_DEPTH - 5; // Below the detailed floor
     baseFloor.receiveShadow = true;
     gameState.scene.add(baseFloor);
     
     return baseFloor;
 }
 
-// Create detailed floor with terrain
-function createDetailedFloor(sandTexture, sandBumpMap) {
-    // Use a smaller number of segments for better wireframe rendering if needed
-    const segments = 128;
-    
-    // Create the geometry directly in the XZ plane for a horizontal floor
-    // We'll manually construct our terrain using BufferGeometry
-    const terrainGeometry = new THREE.BufferGeometry();
-    
-    // Calculate grid size
-    const gridSize = segments + 1;
-    const halfSize = WORLD_SIZE;
-    const cellSize = (WORLD_SIZE * 2) / segments;
-    
-    // Create position array for all vertices
-    const positions = new Float32Array(gridSize * gridSize * 3); // 3 components per vertex
-    const indices = [];
-    
-    // Track min/max heights for debugging
-    let minHeight = Infinity;
-    let maxHeight = -Infinity;
-    
-    // For each vertex in our grid
-    for (let z = 0; z < gridSize; z++) {
-        for (let x = 0; x < gridSize; x++) {
-            // Calculate vertex index
-            const vertexIndex = (z * gridSize + x) * 3;
-            
-            // Calculate world position
-            const worldX = (x * cellSize) - halfSize;
-            const worldZ = (z * cellSize) - halfSize;
-            
-            // Compute terrain height using Perlin noise
-            const noiseValue = perlinNoise.octaveNoise2D(
-                worldX * TERRAIN_SCALE,
-                worldZ * TERRAIN_SCALE,
-                TERRAIN_OCTAVES,
-                TERRAIN_PERSISTENCE
-            );
-            
-            // Apply scaling and offset
-            const worldY = noiseValue * TERRAIN_HEIGHT - TERRAIN_OFFSET;
-            
-            // Track min/max heights
-            minHeight = Math.min(minHeight, worldY);
-            maxHeight = Math.max(maxHeight, worldY);
-            
-            // Set vertex positions - directly in the XZ plane with Y as height
-            positions[vertexIndex] = worldX;     // X
-            positions[vertexIndex + 1] = worldY; // Y (height)
-            positions[vertexIndex + 2] = worldZ; // Z
-            
-            // Create triangles (2 per grid cell)
-            // Skip the last row and column as they don't create cells
-            if (x < segments && z < segments) {
-                // Get indices of the 4 corners of this grid cell
-                const a = z * gridSize + x;
-                const b = z * gridSize + (x + 1);
-                const c = (z + 1) * gridSize + x;
-                const d = (z + 1) * gridSize + (x + 1);
+// Create detailed terrain chunk for a specific area
+export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
+    try {
+        // Use a smaller number of segments for better wireframe rendering if needed
+        const segments = 128;
+        
+        // Create the geometry directly in the XZ plane for a horizontal floor
+        // We'll manually construct our terrain using BufferGeometry
+        const terrainGeometry = new THREE.BufferGeometry();
+        
+        // Calculate grid size
+        const gridSize = segments + 1;
+        const cellSize = width / segments;
+        
+        // Create position array for all vertices
+        const positions = new Float32Array(gridSize * gridSize * 3); // 3 components per vertex
+        const indices = [];
+        
+        // For each vertex in our grid
+        for (let z = 0; z < gridSize; z++) {
+            for (let x = 0; x < gridSize; x++) {
+                // Calculate vertex index
+                const vertexIndex = (z * gridSize + x) * 3;
                 
-                // Create two triangles for this cell
-                indices.push(a, c, b); // Triangle 1
-                indices.push(c, d, b); // Triangle 2
+                // Calculate world position
+                const worldX = offsetX + (x * cellSize) - width/2;
+                const worldZ = offsetZ + (z * cellSize) - height/2;
+                
+                // Compute terrain height using Perlin noise
+                const noiseValue = perlinNoise.octaveNoise2D(
+                    worldX * TERRAIN_SCALE,
+                    worldZ * TERRAIN_SCALE,
+                    TERRAIN_OCTAVES,
+                    TERRAIN_PERSISTENCE
+                );
+                
+                // Apply scaling and offset
+                const worldY = noiseValue * TERRAIN_HEIGHT - TERRAIN_OFFSET;
+                
+                // Set vertex positions - directly in the XZ plane with Y as height
+                positions[vertexIndex] = worldX;     // X
+                positions[vertexIndex + 1] = worldY; // Y (height)
+                positions[vertexIndex + 2] = worldZ; // Z
+                
+                // Create triangles (2 per grid cell)
+                // Skip the last row and column as they don't create cells
+                if (x < segments && z < segments) {
+                    const topLeft = z * gridSize + x;
+                    const topRight = topLeft + 1;
+                    const bottomLeft = (z + 1) * gridSize + x;
+                    const bottomRight = bottomLeft + 1;
+                    
+                    // Triangle 1: top-left, bottom-left, bottom-right
+                    indices.push(topLeft, bottomLeft, bottomRight);
+                    
+                    // Triangle 2: top-left, bottom-right, top-right
+                    indices.push(topLeft, bottomRight, topRight);
+                }
             }
         }
+        
+        // Set attributes for the geometry
+        terrainGeometry.setIndex(indices);
+        terrainGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        // Calculate vertex normals for proper lighting
+        terrainGeometry.computeVertexNormals();
+        
+        // Create terrain mesh
+        const terrain = new THREE.Mesh(terrainGeometry, oceanFloorMaterial);
+        
+        // Position the terrain at correct height
+        terrain.position.y = -OCEAN_DEPTH;
+        
+        // Enable shadows
+        terrain.castShadow = true;
+        terrain.receiveShadow = true;
+        
+        return terrain;
+    } catch (error) {
+        console.error('Error in createDetailedTerrainChunk:', error);
+        return null;
     }
-    
-    // Set the attributes for our geometry
-    terrainGeometry.setIndex(indices);
-    terrainGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    
-    // Compute normals for proper lighting
-    terrainGeometry.computeVertexNormals();
-    
-    // Generate UVs for texturing
-    const uvs = new Float32Array(gridSize * gridSize * 2); // 2 components per UV
-    
-    for (let z = 0; z < gridSize; z++) {
-        for (let x = 0; x < gridSize; x++) {
-            const uvIndex = (z * gridSize + x) * 2;
-            uvs[uvIndex] = x / segments;
-            uvs[uvIndex + 1] = z / segments;
-        }
-    }
-    
-    terrainGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    
-    // Create a material that has wireframe capability
-    const floorMaterial = new THREE.MeshStandardMaterial({
-        color: 0xF0E6C8, // Sandy color
-        roughness: 0.9,
-        metalness: 0.0,
-        map: sandTexture,
-        bumpMap: sandBumpMap,
-        bumpScale: 0.5,
-        flatShading: false, // Smooth by default
-        emissive: 0xF0E6C8, // Match main color
-        emissiveIntensity: 0.1, // Subtle glow
-        wireframe: false // Will be set by debug panel if needed
-    });
-    
-    // Create the floor mesh
-    const floor = new THREE.Mesh(terrainGeometry, floorMaterial);
-    
-    // Position at ocean depth
-    floor.position.y = -OCEAN_DEPTH;
-    
-    // Enable shadows
-    floor.receiveShadow = true;
-    floor.castShadow = false;
-    
-    // Add to scene
-    gameState.scene.add(floor);
-    
-    // Log details for debugging
-    console.log('Created ocean floor terrain:', {
-        scale: TERRAIN_SCALE,
-        height: TERRAIN_HEIGHT,
-        offset: TERRAIN_OFFSET,
-        octaves: TERRAIN_OCTAVES,
-        persistence: TERRAIN_PERSISTENCE,
-        heightRange: { min: minHeight, max: maxHeight },
-        terrainStats: {
-            vertices: gridSize * gridSize,
-            triangles: indices.length / 3,
-            gridSize: `${gridSize}x${gridSize}`,
-            dimensions: `${WORLD_SIZE * 2}x${WORLD_SIZE * 2}`
-        }
-    });
-    
-    return floor;
 }
 
-// Add additional lighting specific to the ocean floor
+// Add lighting for ocean floor
 function addOceanFloorLighting() {
-    // Add a central spotlight for the floor
-    const floorLight = new THREE.SpotLight(0xFFFFFF, 2.0); // Much brighter, whiter light
-    floorLight.position.set(0, -OCEAN_DEPTH + 150, 0); 
-    floorLight.target.position.set(0, -OCEAN_DEPTH, 0);
-    floorLight.angle = Math.PI / 3;
-    floorLight.penumbra = 0.5;
-    floorLight.decay = 1.0; // Less decay
-    floorLight.distance = 400; // Greater distance
-    floorLight.castShadow = true;
-    floorLight.shadow.mapSize.width = 2048; // Higher resolution shadows
-    floorLight.shadow.mapSize.height = 2048;
-    floorLight.shadow.bias = -0.0005; // Reduce shadow artifacts
-    gameState.scene.add(floorLight);
-    gameState.scene.add(floorLight.target);
+    // Add spotlight for dramatic lighting on ocean floor
+    const spotLight = new THREE.SpotLight(0x8fffff, 0.5);
+    spotLight.position.set(0, 100, 0);
+    spotLight.angle = Math.PI / 3;
+    spotLight.penumbra = 0.1;
+    spotLight.decay = 1;
+    spotLight.distance = 1000;
+    spotLight.castShadow = true;
+    spotLight.shadow.mapSize.width = 1024;
+    spotLight.shadow.mapSize.height = 1024;
+    gameState.scene.add(spotLight);
     
-    // Add additional spot lights at different angles to enhance visibility
-    for (let i = 0; i < 4; i++) {
-        const angle = (i / 4) * Math.PI * 2;
-        const offsetX = Math.cos(angle) * 200;
-        const offsetZ = Math.sin(angle) * 200;
-        
-        const additionalLight = new THREE.SpotLight(0xFFFFFF, 1.5);
-        additionalLight.position.set(
-            offsetX, 
-            -OCEAN_DEPTH + 120, 
-            offsetZ
-        );
-        additionalLight.target.position.set(
-            offsetX * 0.5, 
-            -OCEAN_DEPTH, 
-            offsetZ * 0.5
-        );
-        additionalLight.angle = Math.PI / 4;
-        additionalLight.penumbra = 0.7;
-        additionalLight.decay = 1.0;
-        additionalLight.distance = 400;
-        additionalLight.castShadow = true;
-        additionalLight.shadow.mapSize.width = 1024;
-        additionalLight.shadow.mapSize.height = 1024;
-        
-        gameState.scene.add(additionalLight);
-        gameState.scene.add(additionalLight.target);
-    }
-    
-    // Add a strong ambient light at the floor level to ensure it's well-lit
-    const floorAmbientLight = new THREE.AmbientLight(0xFFFFFF, 0.8); // Brighter ambient light
-    floorAmbientLight.position.set(0, -OCEAN_DEPTH + 50, 0);
-    gameState.scene.add(floorAmbientLight);
+    // Add ambient light for general visibility
+    const ambientLight = new THREE.AmbientLight(0x404060, 2.5);
+    gameState.scene.add(ambientLight);
 }
 
-// Debug function to visualize and adjust terrain parameters
+// Debug function to show terrain information
 export function debugTerrain() {
     // Toggle existing debug panel if it already exists
     const existingPanel = document.getElementById('terrain-debug');
@@ -859,7 +790,7 @@ function createDetailedFloorWithParams(scale, height, offset, octaves, persisten
     gameState.scene.add(floor);
     
     // Create the base floor under the detailed terrain
-    const baseFloor = createBaseFloor(sandTexture, sandBumpMap);
+    const baseFloor = createBaseFloor(oceanFloorMaterial);
     baseFloor.position.y = -OCEAN_DEPTH - 5; // Position below the terrain
     
     // Log details for debugging

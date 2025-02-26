@@ -59,8 +59,7 @@ export function updateSubmarinePhysics(deltaTime) {
         sub.object.rotation.z = 0; // Keep roll at zero
         sub.object.rotation.order = 'YXZ'; // Maintain rotation order
         
-        // Apply world boundaries
-        applyWorldBoundaries(sub.object);
+        // In infinite world, we don't apply world boundaries anymore
         
         // Apply buoyancy and depth physics
         applyBuoyancyAndDepth(sub, deltaTime);
@@ -73,15 +72,6 @@ export function updateSubmarinePhysics(deltaTime) {
     } catch (error) {
         console.error('Error in updateSubmarinePhysics:', error);
     }
-}
-
-// Apply world boundaries to keep submarine in playable area
-function applyWorldBoundaries(submarineObj) {
-    const boundaryLimit = WORLD_SIZE / 2 - 50;
-    if (submarineObj.position.x > boundaryLimit) submarineObj.position.x = boundaryLimit;
-    if (submarineObj.position.x < -boundaryLimit) submarineObj.position.x = -boundaryLimit;
-    if (submarineObj.position.z > boundaryLimit) submarineObj.position.z = boundaryLimit;
-    if (submarineObj.position.z < -boundaryLimit) submarineObj.position.z = -boundaryLimit;
 }
 
 // Apply buoyancy and depth-related physics
