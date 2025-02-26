@@ -182,21 +182,53 @@ export function updateTorpedoes(deltaTime) {
                 return;
             }
             
-            // Check world boundaries
-            const pos = torpedo.object.position;
-            const boundaryLimit = WORLD_SIZE / 2;
-            if (Math.abs(pos.x) > boundaryLimit || 
-                Math.abs(pos.z) > boundaryLimit) {
-                torpedoesToRemove.push(index);
-                return;
+            // Check world boundaries only when not using infinite world (chunk system)
+            if (!gameState.chunkSystem) {
+                const pos = torpedo.object.position;
+                const boundaryLimit = WORLD_SIZE / 2;
+                if (Math.abs(pos.x) > boundaryLimit || 
+                    Math.abs(pos.z) > boundaryLimit) {
+                    torpedoesToRemove.push(index);
+                    return;
+                }
             }
             
+            const pos = torpedo.object.position;
+            
             // Check ocean depth boundary - create explosion on ocean floor
-            if (pos.y < -OCEAN_DEPTH + 5) {
-                // Create explosion on ocean floor
-                createExplosion(pos.clone());
-                torpedoesToRemove.push(index);
-                return;
+            // First do a basic check to avoid unnecessary terrain height calculations
+            if (pos.y < -OCEAN_DEPTH + 50) { // Add some margin to account for terrain variations
+                // Import the getTerrainHeightAtPosition function
+                import('../environment/oceanFloor.js').then(module => {
+                    // Get the actual terrain height at torpedo position
+                    const terrainHeightResult = module.getTerrainHeightAtPosition(pos.x, pos.z);
+                    
+                    // Handle potential promise return from terrain height calculation
+                    if (terrainHeightResult instanceof Promise) {
+                        terrainHeightResult.then(terrainHeight => {
+                            // Check if torpedo is below or at terrain level
+                            if (pos.y <= terrainHeight + 5) {
+                                // Create explosion on ocean floor
+                                createExplosion(pos.clone());
+                                
+                                // Mark torpedo for removal if not already removed
+                                if (gameState.torpedoes.includes(torpedo)) {
+                                    const currentIndex = gameState.torpedoes.indexOf(torpedo);
+                                    if (currentIndex !== -1 && !torpedoesToRemove.includes(currentIndex)) {
+                                        torpedoesToRemove.push(currentIndex);
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        // Direct value return - check immediately
+                        if (pos.y <= terrainHeightResult + 5) {
+                            // Create explosion on ocean floor
+                            createExplosion(pos.clone());
+                            torpedoesToRemove.push(index);
+                        }
+                    }
+                });
             }
             
             // Check surface boundary
