@@ -47,7 +47,54 @@ const gameState = {
     torpedoes: [],               // Array to store active torpedoes
     explosions: [],              // Array to store active explosions
     gameOver: false,             // Game over state
-    updateUI: null               // Function to update UI
+    updateUI: null,               // Function to update UI
+    chunkSystem: null,
+    currentChunk: { x: 0, z: 0 },
+    messageSystem: {
+        messages: [],
+        addMessage: function(text, duration = 3000) {
+            const message = { text, created: Date.now(), duration };
+            this.messages.push(message);
+            
+            // Create or update message display
+            this.updateMessageDisplay();
+            
+            // Remove message after duration
+            setTimeout(() => {
+                this.messages = this.messages.filter(m => m !== message);
+                this.updateMessageDisplay();
+            }, duration);
+        },
+        
+        updateMessageDisplay: function() {
+            // Get or create message container
+            let container = document.getElementById('game-messages');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'game-messages';
+                container.style.position = 'absolute';
+                container.style.top = '20px';
+                container.style.left = '20px';
+                container.style.color = 'white';
+                container.style.fontFamily = 'Arial, sans-serif';
+                container.style.fontSize = '16px';
+                container.style.zIndex = '1000';
+                document.body.appendChild(container);
+            }
+            
+            // Update container content
+            container.innerHTML = '';
+            this.messages.forEach(message => {
+                const messageEl = document.createElement('div');
+                messageEl.textContent = message.text;
+                messageEl.style.marginBottom = '8px';
+                messageEl.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                messageEl.style.padding = '6px 12px';
+                messageEl.style.borderRadius = '4px';
+                container.appendChild(messageEl);
+            });
+        }
+    }
 };
 
 // Function to reset game state

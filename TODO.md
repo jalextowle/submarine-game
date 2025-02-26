@@ -8,6 +8,7 @@ These are the fixes that annoyed me at the end of the last session.
 - [x] Make the world bigger
 - [ ] Improve chunk loading and immersiveness without compromising performance.
 - [ ] Add more interesting terrain like trenches, continental shelfs, islands, and volcanoes.
+- [ ] Unify the different settings that we have into a settings panel.
 
 # Testing
 

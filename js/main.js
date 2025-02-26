@@ -12,8 +12,8 @@ import { setupCamera, updateCamera } from './scene/camera.js';
 // Environment imports
 import { createWaterSurface, updateWaterPosition } from './environment/water.js';
 import { createOceanFloor, debugTerrain } from './environment/oceanFloor.js';
-import { createObstacles, checkObstacleCollisions } from './environment/obstacles.js';
 import { initChunkedWorld, updateChunks } from './environment/worldChunks.js';
+import * as biomeSystem from './environment/biomes.js';
 
 // Submarine imports
 import { createSubmarine } from './submarine/submarine.js';
@@ -41,6 +41,11 @@ export function initGame() {
         
         // Initialize the scene and renderer
         initScene();
+        
+        // Initialize biome system with medium distribution by default
+        // This can be changed with biomeSystem.setBiomeDistributionScale('SMALL' or 'LARGE')
+        debug('Initializing biome system');
+        biomeSystem.setBiomeDistributionScale('MEDIUM');
         
         // Create environment
         createWaterSurface();
@@ -77,6 +82,43 @@ function setupDebugControls() {
         // Toggle terrain debug panel with 'T' key
         if (event.key === 't' || event.key === 'T') {
             debugTerrain();
+        }
+        
+        // Change biome distribution scale with number keys
+        if (event.key === '1') {
+            debug('Setting biome scale: SMALL (larger biomes)');
+            biomeSystem.setBiomeDistributionScale('SMALL');
+            // Notify player
+            gameState.messageSystem.addMessage('Biome Scale: SMALL (larger biomes)');
+        }
+        if (event.key === '2') {
+            debug('Setting biome scale: MEDIUM');
+            biomeSystem.setBiomeDistributionScale('MEDIUM');
+            // Notify player
+            gameState.messageSystem.addMessage('Biome Scale: MEDIUM');
+        }
+        if (event.key === '3') {
+            debug('Setting biome scale: LARGE (smaller biomes)');
+            biomeSystem.setBiomeDistributionScale('LARGE');
+            // Notify player
+            gameState.messageSystem.addMessage('Biome Scale: LARGE (smaller biomes)');
+        }
+        
+        // Show biome debug visualization with 'B' key
+        if (event.key === 'b' || event.key === 'B') {
+            const debugElement = document.getElementById('biome-debug');
+            if (debugElement) {
+                document.body.removeChild(debugElement);
+            } else {
+                const { canvas } = biomeSystem.createBiomeDebugTexture(256);
+                canvas.id = 'biome-debug';
+                canvas.style.position = 'absolute';
+                canvas.style.top = '70px';
+                canvas.style.right = '10px';
+                canvas.style.border = '2px solid white';
+                canvas.style.zIndex = '1000';
+                document.body.appendChild(canvas);
+            }
         }
     });
 }

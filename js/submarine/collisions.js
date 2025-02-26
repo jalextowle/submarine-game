@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import gameState from '../core/state.js';
 
-// Check for collisions between submarine and obstacles
+// Check for collisions between submarine and terrain or other elements
 export function checkSubmarineCollisions(previousPosition) {
     try {
         const sub = gameState.submarine;
@@ -13,8 +13,6 @@ export function checkSubmarineCollisions(previousPosition) {
         const hullLength = 25; // Length of submarine
         const collisionRadius = 12; // Increased collision radius for better detection
         let collisionDetected = false;
-        let maxPenetration = 0;
-        let strongestRepulsion = null;
         
         // Get submarine orientation vectors
         const quaternion = new THREE.Quaternion();
@@ -27,52 +25,19 @@ export function checkSubmarineCollisions(previousPosition) {
         // Define collision check points along the submarine hull
         const collisionPoints = getCollisionPoints(sub.object, forwardDirection, hullLength);
         
-        // Check each obstacle against all collision points
-        for (const obstacle of gameState.collisionObjects) {
-            if (obstacle.userData && obstacle.userData.isObstacle) {
-                const obstacleWorldPos = new THREE.Vector3();
-                obstacle.getWorldPosition(obstacleWorldPos);
-                
-                // Check each collision point
-                for (const point of collisionPoints) {
-                    const distance = point.distanceTo(obstacleWorldPos);
-                    const minDistance = 2 + obstacle.userData.collisionRadius; // Smaller point radius
-                    
-                    if (distance < minDistance) {
-                        // Calculate penetration depth
-                        const penetration = minDistance - distance;
-                        
-                        if (penetration > maxPenetration) {
-                            maxPenetration = penetration;
-                            
-                            // Get direction away from obstacle
-                            const repulsionDirection = new THREE.Vector3()
-                                .subVectors(point, obstacleWorldPos)
-                                .normalize();
-                            
-                            // Store strongest repulsion
-                            strongestRepulsion = {
-                                direction: repulsionDirection,
-                                strength: penetration * 1.5 // Stronger repulsion factor
-                            };
-                        }
-                        
-                        collisionDetected = true;
-                    }
-                }
-            }
+        // With obstacles removed, we can implement terrain collision detection here in the future
+        // For now, just handle surface collision to prevent submarine from going above water
+        
+        const subPosition = sub.object.position.clone();
+        if (subPosition.y > -5) { // Prevent submarine from going above water (with a small buffer)
+            sub.object.position.y = -5;
+            collisionDetected = true;
+            
+            // Apply drag to slow the submarine when near surface
+            sub.velocity.y *= 0.5;
         }
         
-        // Apply repulsion if collision detected
-        if (collisionDetected) {
-            if (strongestRepulsion) {
-                // Apply very strong repulsion force
-                sub.object.position.addScaledVector(strongestRepulsion.direction, strongestRepulsion.strength);
-            } else {
-                // Fallback to previous position if no valid repulsion found
-                sub.object.position.copy(previousPosition);
-            }
-        }
+        // Check for collisions with ocean floor or other objects can be added here
         
         return collisionDetected;
     } catch (error) {

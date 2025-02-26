@@ -12,8 +12,8 @@ import {
     TERRAIN_OCTAVES,
     TERRAIN_PERSISTENCE,
 } from '../core/constants.js';
-import { createObstacles } from './obstacles.js';
 import perlinNoise from '../utils/perlinNoise.js';
+import * as biomeSystem from './biomes.js';
 
 // Created shared materials to avoid duplicate material creation
 let sandTexture, sandBumpMap;
@@ -45,13 +45,12 @@ export function createOceanFloor() {
             });
         }
         
-        // Create base floor (flat, large area)
-        createBaseFloor(oceanFloorMaterial);
+        // No longer creating a base floor - we'll rely solely on the chunked terrain
         
         // Add floor lighting
         addOceanFloorLighting();
         
-        debug('Base ocean floor created. Detailed terrain will be generated in chunks.');
+        debug('Ocean floor material created. Detailed terrain will be generated in chunks.');
     } catch (error) {
         console.error('Error in createOceanFloor:', error);
     }
@@ -75,16 +74,19 @@ export function getTerrainHeightAtPosition(x, z) {
             }
         }
         
-        // Fallback to standard terrain height calculation
+        // Get biome-specific terrain parameters
+        const biomeParams = biomeSystem.getTerrainParametersAtPosition(x, z);
+        
+        // Calculate noise value using biome-specific parameters
         const noiseValue = perlinNoise.octaveNoise2D(
-            x * TERRAIN_SCALE,
-            z * TERRAIN_SCALE,
-            TERRAIN_OCTAVES,
-            TERRAIN_PERSISTENCE
+            x * TERRAIN_SCALE * biomeParams.noiseScale,
+            z * TERRAIN_SCALE * biomeParams.noiseScale,
+            biomeParams.noiseOctaves,
+            biomeParams.noisePersistence
         );
         
-        // Apply the same scaling and offset used in terrain creation
-        const terrainHeight = noiseValue * TERRAIN_HEIGHT - TERRAIN_OFFSET;
+        // Apply biome-specific height scaling and offset
+        const terrainHeight = (noiseValue * TERRAIN_HEIGHT * biomeParams.heightScale) + biomeParams.heightOffset - TERRAIN_OFFSET;
         
         // Return the actual Y position by adding the terrain height to the ocean depth
         return -OCEAN_DEPTH + terrainHeight;
@@ -201,33 +203,18 @@ function createSandTextures() {
     return { sandTexture, sandBumpMap };
 }
 
-// Create large flat base floor
-function createBaseFloor(material) {
-    // Create a much larger base floor that extends far beyond the detailed chunks
-    const baseFloorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 10, WORLD_SIZE * 10);
-    
-    const baseFloor = new THREE.Mesh(baseFloorGeometry, material);
-    baseFloor.rotation.x = -Math.PI / 2;
-    baseFloor.position.y = -OCEAN_DEPTH - 5; // Below the detailed floor
-    baseFloor.receiveShadow = true;
-    gameState.scene.add(baseFloor);
-    
-    return baseFloor;
-}
-
-// Create detailed terrain chunk with LOD support
-export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
+// Create a single detailed terrain chunk
+export function createDetailedTerrainChunk(width, height, offsetX, offsetZ, terrainGroup) {
     try {
         // Use variable segment density based on chunk size for performance
         // For larger chunks, we need fewer segments per unit area
-        const baseSegments = 128;
+        const baseSegments = 96; // Reduced from 128 for better performance
         
-        // Scale segments based on chunk size (smaller segments for larger chunks)
-        const scaleFactor = 500 / width; // Base calibrated for 500 unit chunks
-        const segments = Math.max(64, Math.floor(baseSegments * scaleFactor));
+        // Scale segments based on chunk size
+        const scaleFactor = 500 / width;
+        const segments = Math.max(48, Math.floor(baseSegments * scaleFactor)); // Reduced minimum from 64 to 48
         
         // Create the geometry directly in the XZ plane for a horizontal floor
-        // We'll manually construct our terrain using BufferGeometry
         const terrainGeometry = new THREE.BufferGeometry();
         
         // Calculate grid size
@@ -235,8 +222,20 @@ export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
         const cellSize = width / segments;
         
         // Create position array for all vertices
-        const positions = new Float32Array(gridSize * gridSize * 3); // 3 components per vertex
+        const positions = new Float32Array(gridSize * gridSize * 3);
+        const colors = new Float32Array(gridSize * gridSize * 3); // For vertex coloring
         const indices = [];
+        
+        // Use cached biome parameters to avoid recalculating for adjacent vertices
+        // This improves performance by reducing redundant biome calculations
+        const biomeCache = new Map();
+        
+        // Define color ranges based on biome types
+        const biomeColors = {
+            [biomeSystem.BIOME_TYPES.FLAT_SANDY]: new THREE.Color(0xF5E1B3),      // Standard sand color
+            [biomeSystem.BIOME_TYPES.CONTINENTAL_SHELF]: new THREE.Color(0xFFEEBB), // Slightly brighter, more yellow sand
+            [biomeSystem.BIOME_TYPES.TRENCH]: new THREE.Color(0xB59A70)            // Darker, more gray/brown sand
+        };
         
         // For each vertex in our grid
         for (let z = 0; z < gridSize; z++) {
@@ -248,21 +247,61 @@ export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
                 const worldX = offsetX + (x * cellSize) - width/2;
                 const worldZ = offsetZ + (z * cellSize) - height/2;
                 
-                // Compute terrain height using Perlin noise
+                // Get biome-specific terrain parameters with caching
+                // Only calculate every few vertices to improve performance
+                // (the biome distribution changes more slowly than the terrain detail)
+                const cacheKey = `${Math.floor(worldX/10)},${Math.floor(worldZ/10)}`;
+                let biomeParams;
+                let biomeData;
+                
+                if (biomeCache.has(cacheKey)) {
+                    const cachedData = biomeCache.get(cacheKey);
+                    biomeParams = cachedData.params;
+                    biomeData = cachedData.biomeData;
+                } else {
+                    biomeParams = biomeSystem.getTerrainParametersAtPosition(worldX, worldZ);
+                    biomeData = biomeSystem.getBiomeAtPosition(worldX, worldZ);
+                    biomeCache.set(cacheKey, { params: biomeParams, biomeData });
+                }
+                
+                // Compute terrain height using Perlin noise with biome parameters
                 const noiseValue = perlinNoise.octaveNoise2D(
-                    worldX * TERRAIN_SCALE,
-                    worldZ * TERRAIN_SCALE,
-                    TERRAIN_OCTAVES,
-                    TERRAIN_PERSISTENCE
+                    worldX * TERRAIN_SCALE * biomeParams.noiseScale,
+                    worldZ * TERRAIN_SCALE * biomeParams.noiseScale,
+                    biomeParams.noiseOctaves,
+                    biomeParams.noisePersistence
                 );
                 
-                // Apply scaling and offset
-                const worldY = noiseValue * TERRAIN_HEIGHT - TERRAIN_OFFSET;
+                // Apply biome-specific scaling and offset
+                const worldY = (noiseValue * TERRAIN_HEIGHT * biomeParams.heightScale) + 
+                               biomeParams.heightOffset - TERRAIN_OFFSET;
                 
                 // Set vertex positions - directly in the XZ plane with Y as height
                 positions[vertexIndex] = worldX;     // X
                 positions[vertexIndex + 1] = worldY; // Y (height)
                 positions[vertexIndex + 2] = worldZ; // Z
+                
+                // Blend colors based on biome blend factors
+                const blendedColor = new THREE.Color(0);
+                for (const [biomeType, factor] of Object.entries(biomeData.blendFactors)) {
+                    if (factor > 0) {
+                        const biomeColor = biomeColors[biomeType].clone();
+                        
+                        // Apply depth-based darkening to trenches
+                        if (biomeType === biomeSystem.BIOME_TYPES.TRENCH) {
+                            // Make deeper trenches darker
+                            const depthFactor = Math.min(1.0, Math.abs(worldY) / 500);
+                            biomeColor.multiplyScalar(1.0 - (depthFactor * 0.4));
+                        }
+                        
+                        blendedColor.add(biomeColor.multiplyScalar(factor));
+                    }
+                }
+                
+                // Set the vertex color
+                colors[vertexIndex] = blendedColor.r;
+                colors[vertexIndex + 1] = blendedColor.g;
+                colors[vertexIndex + 2] = blendedColor.b;
                 
                 // Create triangles (2 per grid cell)
                 // Skip the last row and column as they don't create cells
@@ -281,8 +320,14 @@ export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
             }
         }
         
+        // Clear the cache to free memory
+        biomeCache.clear();
+        
         // Add position attribute to the geometry
         terrainGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        // Add vertex colors to the geometry
+        terrainGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         
         // Add face indices
         terrainGeometry.setIndex(indices);
@@ -290,10 +335,22 @@ export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
         // Compute vertex normals for proper lighting
         terrainGeometry.computeVertexNormals();
         
+        // Create material that uses vertex colors
+        const terrainMaterial = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.9,
+            metalness: 0.1,
+            map: sandTexture,
+            bumpMap: sandBumpMap,
+            bumpScale: 0.3,
+            emissive: 0x555555, // Subtle glow
+            emissiveIntensity: 0.05
+        });
+        
         // Create mesh with material
         const terrainMesh = new THREE.Mesh(
             terrainGeometry,
-            oceanFloorMaterial ? oceanFloorMaterial : createDefaultMaterial()
+            terrainMaterial
         );
         
         // Position mesh so it's centered at the given offset
@@ -729,16 +786,20 @@ function createDetailedFloorWithParams(scale, height, offset, octaves, persisten
             const worldX = (x * cellSize) - halfSize;
             const worldZ = (z * cellSize) - halfSize;
             
-            // Compute terrain height using Perlin noise
+            // Instead of using fixed values, get biome parameters for a more interesting debug view
+            const biomeParams = biomeSystem.getTerrainParametersAtPosition(worldX, worldZ);
+            
+            // Compute terrain height using Perlin noise - but incorporate biome influence
             const noiseValue = perlinNoise.octaveNoise2D(
-                worldX * scale,
-                worldZ * scale,
+                worldX * scale * biomeParams.noiseScale,
+                worldZ * scale * biomeParams.noiseScale,
                 octaves,
                 persistence
             );
             
-            // Apply scaling and offset
-            const worldY = noiseValue * height - offset;
+            // Apply scaling and offset with biome influence
+            const worldY = noiseValue * height * biomeParams.heightScale - 
+                         (offset + biomeParams.heightOffset * 0.5); // Blend with biome parameters
             
             // Track min/max heights
             minHeight = Math.min(minHeight, worldY);
@@ -813,10 +874,6 @@ function createDetailedFloorWithParams(scale, height, offset, octaves, persisten
     
     // Add to scene
     gameState.scene.add(floor);
-    
-    // Create the base floor under the detailed terrain
-    const baseFloor = createBaseFloor(oceanFloorMaterial);
-    baseFloor.position.y = -OCEAN_DEPTH - 5; // Position below the terrain
     
     // Log details for debugging
     console.log('Created new ocean floor terrain:', {

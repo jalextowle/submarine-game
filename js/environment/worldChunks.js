@@ -3,10 +3,10 @@
 import * as THREE from 'three';
 import gameState from '../core/state.js';
 import { debug } from '../core/debug.js';
-import { OCEAN_DEPTH, WORLD_SIZE } from '../core/constants.js';
+import { OCEAN_DEPTH, WORLD_SIZE, TERRAIN_HEIGHT, TERRAIN_SCALE, TERRAIN_OFFSET } from '../core/constants.js';
 import { createDetailedTerrainChunk } from './oceanFloor.js';
-import { createObstaclesInChunk } from './obstacles.js';
 import perlinNoise from '../utils/perlinNoise.js';
+import * as biomeSystem from './biomes.js';
 
 // Configuration for chunked world - optimized for performance
 const CHUNK_SIZE = 600; // Size of each terrain chunk (balanced between 500 and 750)
@@ -171,17 +171,6 @@ export function updateChunks(forceUpdate = false) {
                 // Remove the chunk from the scene
                 gameState.scene.remove(chunkData.terrain);
                 
-                // Remove obstacles
-                for (const obstacle of chunkData.obstacles) {
-                    gameState.scene.remove(obstacle);
-                    
-                    // Also remove from collision objects
-                    const index = gameState.collisionObjects.indexOf(obstacle);
-                    if (index !== -1) {
-                        gameState.collisionObjects.splice(index, 1);
-                    }
-                }
-                
                 // Remove chunk from active chunks
                 activeChunks.delete(chunkKey);
             }
@@ -199,11 +188,8 @@ export function updateChunks(forceUpdate = false) {
             // Determine if the chunk is within render distance
             const isVisible = distance <= RENDER_DISTANCE;
             
-            // Update visibility of terrain and obstacles
+            // Update visibility of terrain
             chunkData.terrain.visible = isVisible;
-            for (const obstacle of chunkData.obstacles) {
-                obstacle.visible = isVisible;
-            }
         }
     } catch (error) {
         console.error('Error in updateChunks:', error);
@@ -250,33 +236,22 @@ function createChunk(chunkX, chunkZ) {
         const worldX = chunkX * CHUNK_SIZE;
         const worldZ = chunkZ * CHUNK_SIZE;
         
-        // Create terrain for this chunk
+        // Create terrain for this chunk - order of parameters fixed to match function signature:
+        // createDetailedTerrainChunk(width, height, offsetX, offsetZ, terrainGroup)
         const terrain = createDetailedTerrainChunk(
-            worldX, 
-            worldZ, 
-            CHUNK_SIZE,
-            CHUNK_SIZE
+            CHUNK_SIZE,    // width
+            CHUNK_SIZE,    // height
+            worldX,        // offsetX
+            worldZ,        // offsetZ
+            null          // terrainGroup (optional)
         );
         
         // Add to scene
         gameState.scene.add(terrain);
         
-        // Generate a deterministic seed for this chunk's obstacles
-        const chunkSeed = perlinNoise.getPositionHash(chunkX, chunkZ);
-        
-        // Create obstacles for this chunk with deterministic positioning
-        const obstacles = createObstaclesInChunk(
-            worldX, 
-            worldZ, 
-            CHUNK_SIZE, 
-            CHUNK_SIZE, 
-            chunkSeed
-        );
-        
         // Add chunk to active chunks
         activeChunks.set(chunkKey, { 
             terrain,
-            obstacles,
             position: { x: worldX, z: worldZ }
         });
         
@@ -293,29 +268,28 @@ export function worldToChunkCoordinates(worldX, worldZ) {
     return { chunkX, chunkZ };
 }
 
-// Get the height of the terrain at any world position
+// Get the terrain height at any position in the infinite world
 export function getInfiniteTerrainHeightAtPosition(x, z) {
     try {
-        return getTerrainHeightAtCoordinates(x, z);
+        // Get biome-specific terrain parameters
+        const biomeParams = biomeSystem.getTerrainParametersAtPosition(x, z);
+        
+        // Calculate noise value using biome-specific parameters
+        const noiseValue = perlinNoise.octaveNoise2D(
+            x * TERRAIN_SCALE * biomeParams.noiseScale,
+            z * TERRAIN_SCALE * biomeParams.noiseScale,
+            biomeParams.noiseOctaves,
+            biomeParams.noisePersistence
+        );
+        
+        // Apply biome-specific height scaling and offset
+        const terrainHeight = (noiseValue * TERRAIN_HEIGHT * biomeParams.heightScale) + 
+                              biomeParams.heightOffset - TERRAIN_OFFSET;
+        
+        // Return the actual Y position by adding the terrain height to the ocean depth
+        return -OCEAN_DEPTH + terrainHeight;
     } catch (error) {
-        console.error('Error in getInfiniteTerrainHeightAtPosition:', error);
-        return -OCEAN_DEPTH; // Fallback to default ocean depth
+        console.error('Error calculating infinite terrain height:', error);
+        return -OCEAN_DEPTH; // Fallback to base ocean depth
     }
-}
-
-// Calculate terrain height at any coordinate using the same algorithm as terrain generation
-function getTerrainHeightAtCoordinates(x, z) {
-    // Use the same noise function parameters as in terrain creation
-    const noiseValue = perlinNoise.octaveNoise2D(
-        x * 0.003, // TERRAIN_SCALE
-        z * 0.003, // TERRAIN_SCALE
-        5,         // TERRAIN_OCTAVES
-        0.65       // TERRAIN_PERSISTENCE
-    );
-    
-    // Apply the same height scaling and offset used in terrain creation
-    const terrainHeight = noiseValue * 80 - 20; // TERRAIN_HEIGHT - TERRAIN_OFFSET
-    
-    // Return the actual Y position 
-    return -OCEAN_DEPTH + terrainHeight;
 } 

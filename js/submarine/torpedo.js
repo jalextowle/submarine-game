@@ -250,32 +250,22 @@ export function updateTorpedoes(deltaTime) {
 
 // Check collisions for a single torpedo
 function checkTorpedoCollisions(torpedo, index, torpedoesToRemove) {
-    let collision = false;
-    const pos = torpedo.object.position;
+    // With obstacles removed, we'll check for terrain collisions or other submarine-related collisions
+    // Torpedo hitting ocean floor can be implemented when needed
     
-    gameState.collisionObjects.forEach(obstacle => {
-        if (collision) return; // Skip if already collided
+    // For now, we'll just check if the torpedo has gone below max depth
+    const pos = torpedo.object.position;
+    const maxDepth = -1000; // Maximum depth for torpedoes
+    
+    if (pos.y < maxDepth) {
+        // Create a small explosion at the max depth point
+        createExplosion(pos.clone());
         
-        if (obstacle.userData && obstacle.userData.isObstacle) {
-            const obstaclePos = new THREE.Vector3();
-            obstacle.getWorldPosition(obstaclePos);
-            
-            const distance = pos.distanceTo(obstaclePos);
-            const minDistance = torpedo.collisionRadius + obstacle.userData.collisionRadius;
-            
-            if (distance < minDistance) {
-                collision = true;
-                // Create explosion at collision point
-                const explosionPos = pos.clone().add(
-                    obstaclePos.clone().sub(pos).normalize().multiplyScalar(torpedo.collisionRadius)
-                );
-                createExplosion(explosionPos);
-                
-                // Mark torpedo for removal
-                torpedoesToRemove.push(index);
-            }
-        }
-    });
+        // Mark torpedo for removal
+        torpedoesToRemove.push(index);
+    }
+    
+    // Future collision checks with other objects can be added here
 }
 
 // Remove torpedoes from the scene and array
