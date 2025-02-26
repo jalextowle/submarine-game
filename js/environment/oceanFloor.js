@@ -31,14 +31,14 @@ export function createOceanFloor() {
             
             // Create material for ocean floor
             oceanFloorMaterial = new THREE.MeshStandardMaterial({
-                color: 0xEADAB5, // Light sandy beige
-                roughness: 1.0,
-                metalness: 0.0, // No metalness for sand
+                color: 0xF5E1B3, // Brighter, golden sand color
+                roughness: 0.9,
+                metalness: 0.1, // Slight shimmer for underwater effect
                 map: sandTexture,
                 bumpMap: sandBumpMap,
                 bumpScale: 0.3,
-                emissive: 0xEADAB5, // Match base color for subtle light contribution
-                emissiveIntensity: 0.05 // Very subtle glow
+                emissive: 0xF0D890, // Subtle golden glow
+                emissiveIntensity: 0.1 // Slightly increased glow
             });
         }
         
@@ -206,11 +206,16 @@ function createBaseFloor(material) {
     return baseFloor;
 }
 
-// Create detailed terrain chunk for a specific area
+// Create detailed terrain chunk with LOD support
 export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
     try {
-        // Use a smaller number of segments for better wireframe rendering if needed
-        const segments = 128;
+        // Use variable segment density based on chunk size for performance
+        // For larger chunks, we need fewer segments per unit area
+        const baseSegments = 128;
+        
+        // Scale segments based on chunk size (smaller segments for larger chunks)
+        const scaleFactor = 500 / width; // Base calibrated for 500 unit chunks
+        const segments = Math.max(64, Math.floor(baseSegments * scaleFactor));
         
         // Create the geometry directly in the XZ plane for a horizontal floor
         // We'll manually construct our terrain using BufferGeometry
@@ -258,43 +263,54 @@ export function createDetailedTerrainChunk(offsetX, offsetZ, width, height) {
                     const bottomLeft = (z + 1) * gridSize + x;
                     const bottomRight = bottomLeft + 1;
                     
-                    // Triangle 1: top-left, bottom-left, bottom-right
-                    indices.push(topLeft, bottomLeft, bottomRight);
+                    // First triangle (top-left, bottom-left, top-right)
+                    indices.push(topLeft, bottomLeft, topRight);
                     
-                    // Triangle 2: top-left, bottom-right, top-right
-                    indices.push(topLeft, bottomRight, topRight);
+                    // Second triangle (top-right, bottom-left, bottom-right)
+                    indices.push(topRight, bottomLeft, bottomRight);
                 }
             }
         }
         
-        // Set attributes for the geometry
-        terrainGeometry.setIndex(indices);
+        // Add position attribute to the geometry
         terrainGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         
-        // Calculate vertex normals for proper lighting
+        // Add face indices
+        terrainGeometry.setIndex(indices);
+        
+        // Compute vertex normals for proper lighting
         terrainGeometry.computeVertexNormals();
         
-        // Create terrain mesh
-        const terrain = new THREE.Mesh(terrainGeometry, oceanFloorMaterial);
+        // Create mesh with material
+        const terrainMesh = new THREE.Mesh(
+            terrainGeometry,
+            oceanFloorMaterial ? oceanFloorMaterial : createDefaultMaterial()
+        );
         
-        // Position the terrain at correct height
-        terrain.position.y = -OCEAN_DEPTH;
+        // Position mesh so it's centered at the given offset
+        terrainMesh.position.set(0, -OCEAN_DEPTH, 0);
         
-        // Enable shadows
-        terrain.castShadow = true;
-        terrain.receiveShadow = true;
+        // Set name for easy identification
+        terrainMesh.name = `TerrainChunk_${offsetX}_${offsetZ}`;
         
-        return terrain;
+        // Add custom userData for LOD management
+        terrainMesh.userData = {
+            isTerrainChunk: true,
+            chunkOffset: { x: offsetX, z: offsetZ },
+            chunkSize: width
+        };
+        
+        return terrainMesh;
     } catch (error) {
-        console.error('Error in createDetailedTerrainChunk:', error);
-        return null;
+        console.error('Error creating detailed terrain chunk:', error);
+        return createFallbackChunk(offsetX, offsetZ, width, height);
     }
 }
 
 // Add lighting for ocean floor
 function addOceanFloorLighting() {
     // Add spotlight for dramatic lighting on ocean floor
-    const spotLight = new THREE.SpotLight(0x8fffff, 0.5);
+    const spotLight = new THREE.SpotLight(0x8CFFFF, 0.8); // Brighter, more tropical blue
     spotLight.position.set(0, 100, 0);
     spotLight.angle = Math.PI / 3;
     spotLight.penumbra = 0.1;
@@ -305,8 +321,8 @@ function addOceanFloorLighting() {
     spotLight.shadow.mapSize.height = 1024;
     gameState.scene.add(spotLight);
     
-    // Add ambient light for general visibility
-    const ambientLight = new THREE.AmbientLight(0x404060, 2.5);
+    // Add ambient light for general visibility - brighter and more blue for tropical waters
+    const ambientLight = new THREE.AmbientLight(0x6AADE0, 3.5); // Increased intensity, bluer tone
     gameState.scene.add(ambientLight);
 }
 
@@ -806,4 +822,38 @@ function createDetailedFloorWithParams(scale, height, offset, octaves, persisten
     });
     
     return floor;
+}
+
+// Create a simple fallback chunk in case of errors
+function createFallbackChunk(offsetX, offsetZ, width, height) {
+    try {
+        // Create a simple plane as fallback
+        const geometry = new THREE.PlaneGeometry(width, height, 4, 4);
+        geometry.rotateX(-Math.PI / 2); // Rotate to horizontal
+        
+        // Create a simple material
+        const material = createDefaultMaterial();
+        
+        // Create mesh
+        const fallbackMesh = new THREE.Mesh(geometry, material);
+        
+        // Position at correct location
+        fallbackMesh.position.set(offsetX, -OCEAN_DEPTH, offsetZ);
+        
+        return fallbackMesh;
+    } catch (error) {
+        console.error('Error creating fallback chunk:', error);
+        return null;
+    }
+}
+
+// Create a default material when needed
+function createDefaultMaterial() {
+    return new THREE.MeshStandardMaterial({
+        color: 0xF5E1B3, // Brighter, more golden sand color
+        roughness: 0.9,
+        metalness: 0.1, // Slight shimmer for underwater sand
+        emissive: 0xF0D890, // Subtle golden glow
+        emissiveIntensity: 0.1, // Low intensity glow
+    });
 } 

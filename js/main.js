@@ -110,7 +110,7 @@ function animate() {
         // Update explosions
         updateExplosions();
         
-        // Update chunks for infinite world
+        // Update chunks for infinite world - always call to ensure smooth updates
         if (gameState.chunkSystem) {
             updateChunks();
         }

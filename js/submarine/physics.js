@@ -39,6 +39,9 @@ export function updateSubmarinePhysics(deltaTime) {
         const rightDirection = new THREE.Vector3(1, 0, 0);
         rightDirection.applyQuaternion(quaternion);
         
+        // Calculate velocity before position update
+        const startPosition = sub.object.position.clone();
+        
         // Apply propulsion in forward direction
         const propulsionEffectiveness = sub.isAirborne ? 0.3 : 1.0; // 30% effectiveness in air
         const propulsionForce = sub.propulsion * MOVEMENT_SPEED * propulsionEffectiveness;
@@ -66,6 +69,10 @@ export function updateSubmarinePhysics(deltaTime) {
         
         // Check for surface transitions (entering/exiting water)
         checkSurfaceTransitions(sub);
+        
+        // Calculate velocity vector from position change
+        const endPosition = sub.object.position.clone();
+        sub.velocity = endPosition.clone().sub(startPosition).divideScalar(deltaTime);
         
         // Return the previous position for collision handling
         return previousPosition;
