@@ -19,6 +19,12 @@ export function createInstructions() {
             <p><strong>H:</strong> Toggle help</p>
             <p><strong>Jump:</strong> Point up and accelerate!</p>
             <p><strong>Click game to activate mouse control</strong></p>
+            
+            <h3>Debug Controls</h3>
+            <p><strong>B:</strong> Toggle simple biome map</p>
+            <p><strong>Shift+B:</strong> Toggle enhanced biome map</p>
+            <p><strong>1/2/3:</strong> Change biome distribution (Large/Medium/Small)</p>
+            <p><strong>T:</strong> Toggle terrain debug</p>
         </div>
     `;
     document.body.appendChild(instructions);

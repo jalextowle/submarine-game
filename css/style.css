@@ -329,4 +329,41 @@ body {
 
 #dashboard-message.visible {
     opacity: 1;
+}
+
+/* Biome Debug Map */
+#biome-debug {
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
+
+#biome-debug:hover {
+    transform: scale(1.05);
+}
+
+/* Enhanced Biome Map */
+#enhanced-biome-map {
+    font-family: 'Arial', sans-serif;
+}
+
+#enhanced-biome-map button {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+#enhanced-biome-map button:hover {
+    background-color: #5a7fb5 !important;
+}
+
+#enhanced-biome-map input[type="range"] {
+    cursor: pointer;
+}
+
+#enhanced-biome-map canvas {
+    transition: border-color 0.2s ease;
+}
+
+#enhanced-biome-map canvas:hover {
+    border-color: #6a8cb2 !important;
 } 

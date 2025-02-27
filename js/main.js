@@ -106,21 +106,50 @@ function setupDebugControls() {
         
         // Show biome debug visualization with 'B' key
         if (event.key === 'b' || event.key === 'B') {
-            const debugElement = document.getElementById('biome-debug');
-            if (debugElement) {
-                document.body.removeChild(debugElement);
+            // If shift is held, show the enhanced biome map instead
+            if (event.shiftKey) {
+                toggleEnhancedBiomeMap();
             } else {
-                const { canvas } = biomeSystem.createBiomeDebugTexture(256);
-                canvas.id = 'biome-debug';
-                canvas.style.position = 'absolute';
-                canvas.style.top = '70px';
-                canvas.style.right = '10px';
-                canvas.style.border = '2px solid white';
-                canvas.style.zIndex = '1000';
-                document.body.appendChild(canvas);
+                // Original simple biome debug visualization
+                const debugElement = document.getElementById('biome-debug');
+                if (debugElement) {
+                    document.body.removeChild(debugElement);
+                } else {
+                    const { canvas } = biomeSystem.createBiomeDebugTexture(256);
+                    canvas.id = 'biome-debug';
+                    canvas.style.position = 'absolute';
+                    canvas.style.top = '70px';
+                    canvas.style.right = '10px';
+                    canvas.style.border = '2px solid white';
+                    canvas.style.zIndex = '1000';
+                    document.body.appendChild(canvas);
+                }
             }
         }
     });
+    
+    // Function to toggle the enhanced biome map
+    function toggleEnhancedBiomeMap() {
+        const existingMap = document.getElementById('enhanced-biome-map');
+        if (existingMap) {
+            document.body.removeChild(existingMap);
+        } else {
+            // Create the enhanced biome map with submarine's current position
+            let playerX = 0;
+            let playerZ = 0;
+            
+            if (gameState.submarine) {
+                playerX = gameState.submarine.position.x;
+                playerZ = gameState.submarine.position.z;
+            }
+            
+            const biomeMap = biomeSystem.createEnhancedBiomeMap(512, 2000, playerX, playerZ);
+            document.body.appendChild(biomeMap);
+            
+            // Show a message about the map
+            gameState.messageSystem.addMessage('Enhanced Biome Map opened. Use Shift+B to toggle.');
+        }
+    }
 }
 
 // Main game loop
