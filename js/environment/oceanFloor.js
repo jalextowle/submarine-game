@@ -234,7 +234,9 @@ export function createDetailedTerrainChunk(width, height, offsetX, offsetZ, terr
         const biomeColors = {
             [biomeSystem.BIOME_TYPES.FLAT_SANDY]: new THREE.Color(0xF5E1B3),      // Standard sand color
             [biomeSystem.BIOME_TYPES.CONTINENTAL_SHELF]: new THREE.Color(0xFFEEBB), // Slightly brighter, more yellow sand
-            [biomeSystem.BIOME_TYPES.TRENCH]: new THREE.Color(0xB59A70)            // Darker, more gray/brown sand
+            [biomeSystem.BIOME_TYPES.TRENCH]: new THREE.Color(0xB59A70),           // Darker, more gray/brown sand
+            [biomeSystem.BIOME_TYPES.SEAMOUNT]: new THREE.Color(0x3A7D8C),         // Teal-blue color for underwater mountains
+            [biomeSystem.BIOME_TYPES.ISLAND]: new THREE.Color(0x5A9678)            // Green-tinted color for islands above water
         };
         
         // For each vertex in our grid
@@ -292,6 +294,41 @@ export function createDetailedTerrainChunk(width, height, offsetX, offsetZ, terr
                             // Make deeper trenches darker
                             const depthFactor = Math.min(1.0, Math.abs(worldY) / 500);
                             biomeColor.multiplyScalar(1.0 - (depthFactor * 0.4));
+                        }
+                        
+                        // Apply height-based coloring to seamounts
+                        if (biomeType === biomeSystem.BIOME_TYPES.SEAMOUNT) {
+                            // Adjust color based on height - higher parts are lighter
+                            const heightFactor = Math.min(1.0, (worldY + OCEAN_DEPTH) / 400);
+                            biomeColor.lerp(new THREE.Color(0x78B7C5), heightFactor * 0.5);
+                        }
+                        
+                        // Special handling for islands that break the surface
+                        if (biomeType === biomeSystem.BIOME_TYPES.ISLAND) {
+                            // Above water level (approximately 0), use land colors
+                            if (worldY - OCEAN_DEPTH > -10) {
+                                // Calculate how far above water the terrain is (as percentage)
+                                const aboveWaterFactor = Math.min(1.0, (worldY - OCEAN_DEPTH + 10) / 100);
+                                
+                                // Transition from underwater sand to land colors
+                                // For higher elevations (beaches to grass to mountains)
+                                if (aboveWaterFactor < 0.2) {
+                                    // Beach - sandy color
+                                    biomeColor.set(0xF5E1B3);
+                                } else if (aboveWaterFactor < 0.6) {
+                                    // Grassy areas
+                                    const grassFactor = (aboveWaterFactor - 0.2) / 0.4;
+                                    biomeColor.lerp(new THREE.Color(0x4B9E47), grassFactor);
+                                } else {
+                                    // Mountain/rock areas
+                                    const rockFactor = (aboveWaterFactor - 0.6) / 0.4;
+                                    biomeColor.lerp(new THREE.Color(0x8B7D6B), rockFactor);
+                                }
+                            } else {
+                                // Underwater part of islands - more coral-like
+                                const depthFactor = Math.min(1.0, (OCEAN_DEPTH - worldY) / 100);
+                                biomeColor.lerp(new THREE.Color(0xD97941), 0.3 - (depthFactor * 0.3));
+                            }
                         }
                         
                         blendedColor.add(biomeColor.multiplyScalar(factor));
