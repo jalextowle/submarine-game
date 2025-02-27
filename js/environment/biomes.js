@@ -7,7 +7,6 @@ export const BIOME_TYPES = {
     FLAT_SANDY: 'flatSandy',
     CONTINENTAL_SHELF: 'continentalShelf',
     TRENCH: 'trench',
-    SEAMOUNT: 'seamount',
     ISLAND: 'island'
 };
 
@@ -48,14 +47,6 @@ export const BIOME_PARAMS = {
         noisePersistence: 0.8, // Higher persistence for sharper, more pronounced features
         color: '#194769'      // Dark blue for deep trenches
     },
-    [BIOME_TYPES.SEAMOUNT]: {
-        heightScale: 5.0,     // High scale for steep underwater mountains
-        heightOffset: 400,    // Positive offset to create peaks that rise close to the surface
-        noiseScale: 0.5,      // Medium noise scale for mountainous terrain
-        noiseOctaves: 4,      // More octaves for detailed mountain features
-        noisePersistence: 0.7, // Medium-high persistence for rugged mountain terrain
-        color: '#3a7d8c'      // Teal-blue color for underwater mountains
-    },
     [BIOME_TYPES.ISLAND]: {
         heightScale: 7.0,     // Very high scale for islands that break the surface
         heightOffset: 700,    // Large positive offset to create peaks above water
@@ -63,6 +54,27 @@ export const BIOME_PARAMS = {
         noiseOctaves: 5,      // High octaves for detailed shorelines and island terrain
         noisePersistence: 0.65, // Medium persistence for natural-looking island terrain
         color: '#5a9678'      // Green-tinted color for islands
+    }
+};
+
+// Biome-specific amplitude variation ranges
+// These determine how much the heightScale and heightOffset can vary within each biome
+export const BIOME_AMPLITUDE_RANGES = {
+    [BIOME_TYPES.FLAT_SANDY]: {
+        scaleRange: [0.9, 1.1],      // 10% variation in flat areas
+        offsetRange: [0.95, 1.05]    // 5% variation in base height
+    },
+    [BIOME_TYPES.CONTINENTAL_SHELF]: {
+        scaleRange: [0.8, 1.2],      // 20% variation in continental shelf
+        offsetRange: [0.9, 1.1]      // 10% variation in base height
+    },
+    [BIOME_TYPES.TRENCH]: {
+        scaleRange: [0.5, 2.0],      // Extreme range for trench depth variation (50% to 200%)
+        offsetRange: [0.7, 1.8]      // Some trenches much deeper (up to 80% deeper)
+    },
+    [BIOME_TYPES.ISLAND]: {
+        scaleRange: [0.3, 2.5],      // Dramatic variation (30% to 250%) - some are just seamounts, others tall islands
+        offsetRange: [0.6, 2.0]      // Some islands twice as tall as normal, creating dramatic peaks
     }
 };
 
@@ -85,6 +97,32 @@ export function getBiomeDistributionScale() {
     return currentBiomeScale;
 }
 
+// Calculate amplitude variation multiplier based on world position
+// This uses a much lower frequency noise to create gradual changes across large areas
+function getAmplitudeVariation(x, z, biomeType) {
+    // Use a very low frequency (0.00025) to get smooth, gradual changes across large areas
+    // This is about 4x lower frequency than the smallest biome distribution
+    const scale = 0.00025;
+    
+    // Use a different seed offset for scale vs offset variations
+    const scaleNoiseValue = perlinNoise.noise2D(x * scale, z * scale);
+    const offsetNoiseValue = perlinNoise.noise2D(x * scale + 100, z * scale + 100); // Different offset for variety
+    
+    // Get the variation ranges for this biome type
+    const ranges = BIOME_AMPLITUDE_RANGES[biomeType];
+    
+    // Map 0-1 noise values to the biome-specific ranges
+    const scaleMultiplier = mapRange(scaleNoiseValue, 0, 1, ranges.scaleRange[0], ranges.scaleRange[1]);
+    const offsetMultiplier = mapRange(offsetNoiseValue, 0, 1, ranges.offsetRange[0], ranges.offsetRange[1]);
+    
+    return { scaleMultiplier, offsetMultiplier };
+}
+
+// Helper function to map a value from one range to another
+function mapRange(value, inMin, inMax, outMin, outMax) {
+    return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
+}
+
 // Get raw biome noise value at position (used for consistent transitions)
 function getBiomeNoiseAtPosition(x, z) {
     // Use a different seed for biome distribution than for terrain
@@ -100,20 +138,17 @@ function getBiomeNoiseAtPosition(x, z) {
 export function getBiomeAtPosition(x, z) {
     const biomeNoise = getBiomeNoiseAtPosition(x, z);
     
-    // Thresholds for biome transitions - updated with new biomes
+    // Thresholds for biome transitions - updated with seamount removed
     const trenchThreshold = 0.25;     // 0-0.25 for trenches (25%)
-    const flatSandyThreshold = 0.5;   // 0.25-0.5 for flat sandy (25%)
-    const seamountThreshold = 0.7;    // 0.5-0.7 for seamounts (20%)
-    const shelfThreshold = 0.85;      // 0.7-0.85 for continental shelf (15%)
-    const islandThreshold = 1.0;      // 0.85-1.0 for islands (15%)
+    const flatSandyThreshold = 0.6;   // 0.25-0.6 for flat sandy (35%) - increased range
+    const shelfThreshold = 0.8;      // 0.6-0.8 for continental shelf (20%) - increased range
+    const islandThreshold = 1.0;     // 0.8-1.0 for islands (20%) - increased range
     
     // Transition zones - scale based on total range of noise
     const trenchTransitionStart = Math.max(0, trenchThreshold - TRANSITION_WIDTH);
     const trenchTransitionEnd = Math.min(1, trenchThreshold + TRANSITION_WIDTH);
     const flatSandyTransitionStart = Math.max(0, flatSandyThreshold - TRANSITION_WIDTH);
     const flatSandyTransitionEnd = Math.min(1, flatSandyThreshold + TRANSITION_WIDTH);
-    const seamountTransitionStart = Math.max(0, seamountThreshold - TRANSITION_WIDTH);
-    const seamountTransitionEnd = Math.min(1, seamountThreshold + TRANSITION_WIDTH);
     const shelfTransitionStart = Math.max(0, shelfThreshold - TRANSITION_WIDTH);
     const shelfTransitionEnd = Math.min(1, shelfThreshold + TRANSITION_WIDTH);
     
@@ -121,7 +156,6 @@ export function getBiomeAtPosition(x, z) {
     let blendFactors = {
         [BIOME_TYPES.TRENCH]: 0,
         [BIOME_TYPES.FLAT_SANDY]: 0,
-        [BIOME_TYPES.SEAMOUNT]: 0,
         [BIOME_TYPES.CONTINENTAL_SHELF]: 0,
         [BIOME_TYPES.ISLAND]: 0
     };
@@ -135,11 +169,7 @@ export function getBiomeAtPosition(x, z) {
         // Pure flat sandy biome
         dominantBiome = BIOME_TYPES.FLAT_SANDY;
         blendFactors[BIOME_TYPES.FLAT_SANDY] = 1.0;
-    } else if (biomeNoise >= flatSandyTransitionEnd && biomeNoise < seamountTransitionStart) {
-        // Pure seamount biome
-        dominantBiome = BIOME_TYPES.SEAMOUNT;
-        blendFactors[BIOME_TYPES.SEAMOUNT] = 1.0;
-    } else if (biomeNoise >= seamountTransitionEnd && biomeNoise < shelfTransitionStart) {
+    } else if (biomeNoise >= flatSandyTransitionEnd && biomeNoise < shelfTransitionStart) {
         // Pure continental shelf biome
         dominantBiome = BIOME_TYPES.CONTINENTAL_SHELF;
         blendFactors[BIOME_TYPES.CONTINENTAL_SHELF] = 1.0;
@@ -155,19 +185,12 @@ export function getBiomeAtPosition(x, z) {
         dominantBiome = blendFactors[BIOME_TYPES.TRENCH] > blendFactors[BIOME_TYPES.FLAT_SANDY] 
             ? BIOME_TYPES.TRENCH : BIOME_TYPES.FLAT_SANDY;
     } else if (biomeNoise >= flatSandyTransitionStart && biomeNoise < flatSandyTransitionEnd) {
-        // Transition between flat sandy and seamount
+        // Transition between flat sandy and continental shelf
         const t = smoothStep((biomeNoise - flatSandyTransitionStart) / (flatSandyTransitionEnd - flatSandyTransitionStart));
         blendFactors[BIOME_TYPES.FLAT_SANDY] = 1.0 - t;
-        blendFactors[BIOME_TYPES.SEAMOUNT] = t;
-        dominantBiome = blendFactors[BIOME_TYPES.FLAT_SANDY] > blendFactors[BIOME_TYPES.SEAMOUNT] 
-            ? BIOME_TYPES.FLAT_SANDY : BIOME_TYPES.SEAMOUNT;
-    } else if (biomeNoise >= seamountTransitionStart && biomeNoise < seamountTransitionEnd) {
-        // Transition between seamount and continental shelf
-        const t = smoothStep((biomeNoise - seamountTransitionStart) / (seamountTransitionEnd - seamountTransitionStart));
-        blendFactors[BIOME_TYPES.SEAMOUNT] = 1.0 - t;
         blendFactors[BIOME_TYPES.CONTINENTAL_SHELF] = t;
-        dominantBiome = blendFactors[BIOME_TYPES.SEAMOUNT] > blendFactors[BIOME_TYPES.CONTINENTAL_SHELF] 
-            ? BIOME_TYPES.SEAMOUNT : BIOME_TYPES.CONTINENTAL_SHELF;
+        dominantBiome = blendFactors[BIOME_TYPES.FLAT_SANDY] > blendFactors[BIOME_TYPES.CONTINENTAL_SHELF] 
+            ? BIOME_TYPES.FLAT_SANDY : BIOME_TYPES.CONTINENTAL_SHELF;
     } else if (biomeNoise >= shelfTransitionStart && biomeNoise < shelfTransitionEnd) {
         // Transition between continental shelf and island
         const t = smoothStep((biomeNoise - shelfTransitionStart) / (shelfTransitionEnd - shelfTransitionStart));
@@ -190,7 +213,7 @@ function smoothStep(t) {
 
 // Get terrain height parameters for a specific world position
 export function getTerrainParametersAtPosition(x, z) {
-    const { blendFactors } = getBiomeAtPosition(x, z);
+    const { blendFactors, dominantBiome } = getBiomeAtPosition(x, z);
     
     // Initialize result parameters
     const blendedParams = {
@@ -203,12 +226,30 @@ export function getTerrainParametersAtPosition(x, z) {
     
     // Blend parameters from each biome based on blend factors
     let totalFactor = 0;
+    
+    // Track the amplitude variations per biome for blending
+    const biomeAmplitudeVariations = {};
+    
+    // Calculate and store amplitude variations for each biome present
+    for (const [biomeType, factor] of Object.entries(blendFactors)) {
+        if (factor > 0) {
+            biomeAmplitudeVariations[biomeType] = getAmplitudeVariation(x, z, biomeType);
+        }
+    }
+    
+    // Blend parameters from each biome based on blend factors
     for (const [biomeType, factor] of Object.entries(blendFactors)) {
         if (factor > 0) {
             totalFactor += factor;
             const params = BIOME_PARAMS[biomeType];
-            blendedParams.heightScale += params.heightScale * factor;
-            blendedParams.heightOffset += params.heightOffset * factor;
+            const variation = biomeAmplitudeVariations[biomeType];
+            
+            // Apply amplitude variations to height scale and offset
+            const variedHeightScale = params.heightScale * variation.scaleMultiplier;
+            const variedHeightOffset = params.heightOffset * variation.offsetMultiplier;
+            
+            blendedParams.heightScale += variedHeightScale * factor;
+            blendedParams.heightOffset += variedHeightOffset * factor;
             blendedParams.noiseScale += params.noiseScale * factor;
             blendedParams.noiseOctaves += params.noiseOctaves * factor;
             blendedParams.noisePersistence += params.noisePersistence * factor;
@@ -251,14 +292,12 @@ export function createBiomeDebugTexture(size = 256) {
             // Extract blend factors
             const trenchFactor = blendFactors[BIOME_TYPES.TRENCH];
             const flatFactor = blendFactors[BIOME_TYPES.FLAT_SANDY];
-            const seamountFactor = blendFactors[BIOME_TYPES.SEAMOUNT];
             const shelfFactor = blendFactors[BIOME_TYPES.CONTINENTAL_SHELF];
             const islandFactor = blendFactors[BIOME_TYPES.ISLAND];
             
             // Use the exact colors from BIOME_PARAMS to blend
             const trenchColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.TRENCH].color);
             const flatColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.FLAT_SANDY].color);
-            const seamountColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.SEAMOUNT].color);
             const shelfColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.CONTINENTAL_SHELF].color);
             const islandColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.ISLAND].color);
             
@@ -266,21 +305,18 @@ export function createBiomeDebugTexture(size = 256) {
             const r = Math.floor(
                 (trenchColor.r * trenchFactor) +
                 (flatColor.r * flatFactor) +
-                (seamountColor.r * seamountFactor) +
                 (shelfColor.r * shelfFactor) +
                 (islandColor.r * islandFactor)
             );
             const g = Math.floor(
                 (trenchColor.g * trenchFactor) +
                 (flatColor.g * flatFactor) +
-                (seamountColor.g * seamountFactor) +
                 (shelfColor.g * shelfFactor) +
                 (islandColor.g * islandFactor)
             );
             const b = Math.floor(
                 (trenchColor.b * trenchFactor) +
                 (flatColor.b * flatFactor) +
-                (seamountColor.b * seamountFactor) +
                 (shelfColor.b * shelfFactor) +
                 (islandColor.b * islandFactor)
             );
@@ -538,14 +574,12 @@ export function createEnhancedBiomeMap(size = 512, range = 2000, playerX = 0, pl
                 // Extract blend factors
                 const trenchFactor = blendFactors[BIOME_TYPES.TRENCH];
                 const flatFactor = blendFactors[BIOME_TYPES.FLAT_SANDY];
-                const seamountFactor = blendFactors[BIOME_TYPES.SEAMOUNT];
                 const shelfFactor = blendFactors[BIOME_TYPES.CONTINENTAL_SHELF];
                 const islandFactor = blendFactors[BIOME_TYPES.ISLAND];
                 
                 // Use the exact colors from BIOME_PARAMS to blend
                 const trenchColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.TRENCH].color);
                 const flatColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.FLAT_SANDY].color);
-                const seamountColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.SEAMOUNT].color);
                 const shelfColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.CONTINENTAL_SHELF].color);
                 const islandColor = hexToRgb(BIOME_PARAMS[BIOME_TYPES.ISLAND].color);
                 
@@ -553,21 +587,18 @@ export function createEnhancedBiomeMap(size = 512, range = 2000, playerX = 0, pl
                 const r = Math.floor(
                     (trenchColor.r * trenchFactor) +
                     (flatColor.r * flatFactor) +
-                    (seamountColor.r * seamountFactor) +
                     (shelfColor.r * shelfFactor) +
                     (islandColor.r * islandFactor)
                 );
                 const g = Math.floor(
                     (trenchColor.g * trenchFactor) +
                     (flatColor.g * flatFactor) +
-                    (seamountColor.g * seamountFactor) +
                     (shelfColor.g * shelfFactor) +
                     (islandColor.g * islandFactor)
                 );
                 const b = Math.floor(
                     (trenchColor.b * trenchFactor) +
                     (flatColor.b * flatFactor) +
-                    (seamountColor.b * seamountFactor) +
                     (shelfColor.b * shelfFactor) +
                     (islandColor.b * islandFactor)
                 );
