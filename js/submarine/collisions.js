@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import gameState from '../core/state.js';
+import { SURFACE_LEVEL } from '../core/constants.js';
 
 // Check for collisions between submarine and terrain or other elements
 export function checkSubmarineCollisions(previousPosition) {
@@ -26,17 +27,8 @@ export function checkSubmarineCollisions(previousPosition) {
         const collisionPoints = getCollisionPoints(sub.object, forwardDirection, hullLength);
         
         // With obstacles removed, we can implement terrain collision detection here in the future
-        // For now, just handle surface collision to prevent submarine from going above water
-        
-        const subPosition = sub.object.position.clone();
-        if (subPosition.y > -5) { // Prevent submarine from going above water (with a small buffer)
-            sub.object.position.y = -5;
-            collisionDetected = true;
-            
-            // Apply drag to slow the submarine when near surface
-            sub.velocity.y *= 0.5;
-        }
-        
+        // No longer restricting submarine from going above water
+
         // Check for collisions with ocean floor or other objects can be added here
         
         return collisionDetected;
