@@ -10,7 +10,7 @@ import * as biomeSystem from './biomes.js';
 
 // Configuration for chunked world - optimized for performance
 const CHUNK_SIZE = 600; // Size of each terrain chunk (balanced between 500 and 750)
-const RENDER_DISTANCE = 3; // Number of chunks to render in each direction
+const RENDER_DISTANCE = 5; // Number of chunks to render in each direction
 const CHUNK_BUFFER_DISTANCE = 2; // Additional chunks to keep in memory but not visible
 const CHUNK_UPDATE_INTERVAL = 100; // Milliseconds between chunk updates (increased for performance)
 const MAX_CHUNKS_PER_UPDATE = 2; // Maximum chunks to create per update cycle
@@ -44,16 +44,17 @@ function addHorizonFog() {
     if (!gameState.scene) return;
     
     // Use a bright tropical blue color for underwater scene
-    const fogColor = new THREE.Color(0x3E92CC); // Bright tropical blue
+    const fogColor = new THREE.Color(0x4EAFE0); // Slightly adjusted tropical blue
     
-    // Create very subtle exponential fog - just enough to hide distant chunk loading
-    const fogDensity = 0.0008; // Much lower density for a clearer view
+    // Create more effective exponential fog - enough to hide distant chunk loading
+    // but still maintain the bright tropical feel
+    const fogDensity = 0.0008; // Much lower density for better visibility
     gameState.scene.fog = new THREE.FogExp2(fogColor, fogDensity);
     
-    // Update background color to match - slightly lighter for a bright, tropical feel
+    // Update background color to match - keeping the bright tropical feel
     gameState.scene.background = new THREE.Color(0x6ACDFF); // Light sky blue
     
-    debug('Added subtle horizon fog for distance effect');
+    debug('Added enhanced horizon fog to smooth distance transitions');
 }
 
 // Update chunks based on player position
@@ -166,18 +167,29 @@ export function updateChunks(forceUpdate = false) {
             const dz = z - chunkZ;
             const distance = Math.sqrt(dx * dx + dz * dz);
             
-            // If chunk is beyond removal distance and not in needed set, remove it
+            // If chunk is beyond removal distance and not in needed set, fade it out then remove it
             if (distance > removalDistance && !chunksNeeded.has(chunkKey)) {
-                // Remove the chunk from the scene
-                gameState.scene.remove(chunkData.terrain);
-                
-                // Remove chunk from active chunks
-                activeChunks.delete(chunkKey);
+                // If not already fading out, start fade out
+                if (chunkData.fadeState !== 'fading-out') {
+                    chunkData.fadeState = 'fading-out';
+                    chunkData.fadeStartTime = Date.now();
+                    fadeOutChunk(chunkData.terrain, () => {
+                        // Remove from scene after fade is complete
+                        if (chunkData.terrain.parent) {
+                            gameState.scene.remove(chunkData.terrain);
+                        }
+                        // Remove chunk from active chunks
+                        activeChunks.delete(chunkKey);
+                    });
+                }
             }
         }
         
         // Update visibility of chunks based on render distance and apply LOD (Level of Detail)
         for (const [chunkKey, chunkData] of activeChunks.entries()) {
+            // Skip chunks that are already fading out
+            if (chunkData.fadeState === 'fading-out') continue;
+            
             const [x, z] = chunkKey.split(',').map(Number);
             
             // Calculate distance from current chunk
@@ -249,16 +261,126 @@ function createChunk(chunkX, chunkZ) {
         // Add to scene
         gameState.scene.add(terrain);
         
+        // Start with transparent terrain and fade in
+        if (terrain.material) {
+            // Handle case where material might be an array
+            if (Array.isArray(terrain.material)) {
+                terrain.material.forEach(mat => {
+                    // Make material transparent for fading
+                    mat.transparent = true;
+                    mat.opacity = 0;
+                });
+            } else {
+                // Make material transparent for fading
+                terrain.material.transparent = true;
+                terrain.material.opacity = 0;
+            }
+            
+            // Animate fade in
+            fadeInChunk(terrain);
+        }
+        
         // Add chunk to active chunks
         activeChunks.set(chunkKey, { 
             terrain,
-            position: { x: worldX, z: worldZ }
+            position: { x: worldX, z: worldZ },
+            fadeState: 'fading-in',
+            fadeStartTime: Date.now()
         });
         
         debug(`Created chunk at ${chunkX}, ${chunkZ}`);
     } catch (error) {
         console.error(`Error creating chunk at ${chunkX}, ${chunkZ}:`, error);
     }
+}
+
+// Function to fade in a chunk gradually
+function fadeInChunk(terrain) {
+    const startTime = Date.now();
+    const fadeDuration = 600; // milliseconds
+    
+    function animate() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / fadeDuration, 1.0);
+        
+        if (terrain && terrain.material) {
+            // Handle case where material might be an array
+            if (Array.isArray(terrain.material)) {
+                terrain.material.forEach(mat => {
+                    if (mat) mat.opacity = progress;
+                });
+            } else if (terrain.material) {
+                terrain.material.opacity = progress;
+            }
+        }
+        
+        if (progress < 1.0 && terrain.parent) {
+            requestAnimationFrame(animate);
+        } else if (terrain.material) {
+            // Animation complete, restore non-transparent state for performance
+            // but only if opacity reached full value
+            if (Array.isArray(terrain.material)) {
+                terrain.material.forEach(mat => {
+                    if (mat && mat.opacity >= 0.99) {
+                        mat.transparent = false;
+                        mat.needsUpdate = true;
+                    }
+                });
+            } else if (terrain.material && terrain.material.opacity >= 0.99) {
+                terrain.material.transparent = false;
+                terrain.material.needsUpdate = true;
+            }
+        }
+    }
+    
+    requestAnimationFrame(animate);
+}
+
+// Function to fade out a chunk gradually
+function fadeOutChunk(terrain, callback) {
+    const startTime = Date.now();
+    const fadeDuration = 600; // milliseconds
+    
+    // Make material transparent for fading
+    if (terrain.material) {
+        if (Array.isArray(terrain.material)) {
+            terrain.material.forEach(mat => {
+                if (mat) {
+                    mat.transparent = true;
+                    mat.needsUpdate = true;
+                }
+            });
+        } else {
+            terrain.material.transparent = true;
+            terrain.material.needsUpdate = true;
+        }
+    }
+    
+    function animate() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / fadeDuration, 1.0);
+        const opacity = 1.0 - progress;
+        
+        if (terrain && terrain.material) {
+            // Handle case where material might be an array
+            if (Array.isArray(terrain.material)) {
+                terrain.material.forEach(mat => {
+                    if (mat) mat.opacity = opacity;
+                });
+            } else if (terrain.material) {
+                terrain.material.opacity = opacity;
+            }
+        }
+        
+        if (progress < 1.0 && terrain.parent) {
+            requestAnimationFrame(animate);
+        } else {
+            // Animation complete, call callback to remove chunk
+            if (callback) callback();
+        }
+    }
+    
+    requestAnimationFrame(animate);
 }
 
 // Convert world coordinates to chunk coordinates
