@@ -21,6 +21,12 @@ export const BIOME_DISTRIBUTION_SCALES = {
 // Default biome scale
 let currentBiomeScale = BIOME_DISTRIBUTION_SCALES.MEDIUM;
 
+// Variable to control biome size variation across the map
+// Higher values = more pronounced size variation, lower values = more uniform sizes
+let BIOME_SIZE_VARIATION = 0.7; // 0.0 = no variation, 1.0 = maximum variation
+// How quickly biome sizes change across the map (lower = more gradual transitions)
+let BIOME_SIZE_VARIATION_SCALE = 0.00015;
+
 // Biome-specific terrain parameters
 export const BIOME_PARAMS = {
     [BIOME_TYPES.FLAT_SANDY]: {
@@ -92,6 +98,30 @@ export function setBiomeDistributionScale(scaleType) {
     return false;
 }
 
+// Set the amount of biome size variation across the map
+export function setBiomeSizeVariation(variationAmount, variationScale) {
+    // Clamp values to sensible ranges
+    BIOME_SIZE_VARIATION = Math.max(0, Math.min(1, variationAmount));
+    
+    if (variationScale !== undefined) {
+        // Prevent scale from being too extreme in either direction
+        BIOME_SIZE_VARIATION_SCALE = Math.max(0.00005, Math.min(0.0005, variationScale));
+    }
+    
+    return {
+        variationAmount: BIOME_SIZE_VARIATION,
+        variationScale: BIOME_SIZE_VARIATION_SCALE
+    };
+}
+
+// Get current biome variation settings
+export function getBiomeVariationSettings() {
+    return {
+        variationAmount: BIOME_SIZE_VARIATION,
+        variationScale: BIOME_SIZE_VARIATION_SCALE
+    };
+}
+
 // Get the current biome scale
 export function getBiomeDistributionScale() {
     return currentBiomeScale;
@@ -125,10 +155,27 @@ function mapRange(value, inMin, inMax, outMin, outMax) {
 
 // Get raw biome noise value at position (used for consistent transitions)
 function getBiomeNoiseAtPosition(x, z) {
+    // Use a much lower frequency noise to determine biome size in this region
+    const regionSizeVariation = perlinNoise.octaveNoise2D(
+        x * BIOME_SIZE_VARIATION_SCALE,
+        z * BIOME_SIZE_VARIATION_SCALE,
+        1, // Single octave for smoother variation
+        0.5 // Low persistence
+    );
+    
+    // Calculate dynamic biome scale
+    // Map the noise from 0-1 to a blend between small and large biome scales 
+    // based on the BIOME_SIZE_VARIATION intensity
+    const minScale = BIOME_DISTRIBUTION_SCALES.SMALL;
+    const maxScale = BIOME_DISTRIBUTION_SCALES.LARGE;
+    const variableScale = minScale + (maxScale - minScale) * 
+                          (regionSizeVariation * BIOME_SIZE_VARIATION + 
+                           (1 - BIOME_SIZE_VARIATION) * 0.5);
+    
     // Use a different seed for biome distribution than for terrain
     return perlinNoise.octaveNoise2D(
-        x * currentBiomeScale,
-        z * currentBiomeScale,
+        x * variableScale,
+        z * variableScale,
         2, // Fewer octaves for smoother transitions
         0.5 // Lower persistence for gentler variation
     );
@@ -527,6 +574,111 @@ export function createEnhancedBiomeMap(size = 512, range = 2000, playerX = 0, pl
     });
     
     controls.appendChild(legend);
+    
+    // Add a section for biome size variation controls
+    function createBiomeSizeVariationControls() {
+        const variationSection = document.createElement('div');
+        variationSection.style.marginTop = '15px';
+        variationSection.style.padding = '10px';
+        variationSection.style.borderTop = '1px solid #444';
+        
+        const variationTitle = document.createElement('h3');
+        variationTitle.textContent = 'Biome Size Variation';
+        variationTitle.style.fontSize = '16px';
+        variationTitle.style.marginTop = '0';
+        variationTitle.style.marginBottom = '10px';
+        variationSection.appendChild(variationTitle);
+        
+        // Variation Amount slider
+        const variationLabel = document.createElement('label');
+        variationLabel.textContent = 'Variation Amount: ';
+        variationLabel.style.display = 'block';
+        variationLabel.style.marginBottom = '5px';
+        variationSection.appendChild(variationLabel);
+        
+        const variationValue = document.createElement('span');
+        variationValue.textContent = BIOME_SIZE_VARIATION.toFixed(2);
+        variationValue.style.marginLeft = '5px';
+        variationLabel.appendChild(variationValue);
+        
+        const variationSlider = document.createElement('input');
+        variationSlider.type = 'range';
+        variationSlider.min = '0';
+        variationSlider.max = '1';
+        variationSlider.step = '0.05';
+        variationSlider.value = BIOME_SIZE_VARIATION;
+        variationSlider.style.width = '100%';
+        variationSection.appendChild(variationSlider);
+        
+        // Variation Scale slider
+        const scaleLabel = document.createElement('label');
+        scaleLabel.textContent = 'Variation Scale: ';
+        scaleLabel.style.display = 'block';
+        scaleLabel.style.marginTop = '10px';
+        scaleLabel.style.marginBottom = '5px';
+        variationSection.appendChild(scaleLabel);
+        
+        const scaleValue = document.createElement('span');
+        scaleValue.textContent = BIOME_SIZE_VARIATION_SCALE.toFixed(5);
+        scaleValue.style.marginLeft = '5px';
+        scaleLabel.appendChild(scaleValue);
+        
+        const scaleSlider = document.createElement('input');
+        scaleSlider.type = 'range';
+        scaleSlider.min = '0.00005';
+        scaleSlider.max = '0.0005';
+        scaleSlider.step = '0.00005';
+        scaleSlider.value = BIOME_SIZE_VARIATION_SCALE;
+        scaleSlider.style.width = '100%';
+        variationSection.appendChild(scaleSlider);
+        
+        // Event handlers
+        variationSlider.addEventListener('input', () => {
+            const value = parseFloat(variationSlider.value);
+            variationValue.textContent = value.toFixed(2);
+            setBiomeSizeVariation(value);
+            updateMap();
+        });
+        
+        scaleSlider.addEventListener('input', () => {
+            const value = parseFloat(scaleSlider.value);
+            scaleValue.textContent = value.toFixed(5);
+            setBiomeSizeVariation(BIOME_SIZE_VARIATION, value);
+            updateMap();
+        });
+        
+        return variationSection;
+    }
+    
+    // Add controls section after initializing canvas
+    controls.appendChild(createBiomeSizeVariationControls());
+    
+    // Add checkbox for biome size variation visualization
+    const biomeVariationCheck = document.createElement('div');
+    biomeVariationCheck.style.marginTop = '10px';
+    
+    const biomeVariationCheckbox = document.createElement('input');
+    biomeVariationCheckbox.type = 'checkbox';
+    biomeVariationCheckbox.id = 'showBiomeVariation';
+    biomeVariationCheckbox.checked = true;
+    
+    const biomeVariationLabel = document.createElement('label');
+    biomeVariationLabel.textContent = 'Show biome size variation';
+    biomeVariationLabel.htmlFor = 'showBiomeVariation';
+    biomeVariationLabel.style.marginLeft = '5px';
+    
+    biomeVariationCheck.appendChild(biomeVariationCheckbox);
+    biomeVariationCheck.appendChild(biomeVariationLabel);
+    
+    let showBiomeSizeVariation = true;
+    biomeVariationCheckbox.addEventListener('change', () => {
+        showBiomeSizeVariation = biomeVariationCheckbox.checked;
+        updateMap();
+    });
+    
+    controls.appendChild(biomeVariationCheck);
+    
+    // Add the controls to the container
     container.appendChild(controls);
     
     // Function to update the map
@@ -652,6 +804,62 @@ export function createEnhancedBiomeMap(size = 512, range = 2000, playerX = 0, pl
         ctx.fillStyle = 'white';
         ctx.font = '12px Arial';
         ctx.fillText(`${scaleDistance}m`, 20 + scaleBarWidth / 2 - 15, size - 30);
+        
+        // Draw biome size variation overlay
+        if (showBiomeSizeVariation) {
+            // Visualize the variable scale using contour lines
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 1;
+            
+            // Draw contour lines showing biome size variation regions
+            for (let z = 0; z < size; z += 10) {
+                for (let x = 0; x < size; x += 10) {
+                    const worldX = ((x / size) * range * 2) - range + playerX;
+                    const worldZ = ((z / size) * range * 2) - range + playerZ;
+                    
+                    // Get the biome scale at this position
+                    const regionVariation = perlinNoise.octaveNoise2D(
+                        worldX * BIOME_SIZE_VARIATION_SCALE,
+                        worldZ * BIOME_SIZE_VARIATION_SCALE,
+                        1,
+                        0.5
+                    );
+                    
+                    // Only draw points at threshold boundaries to create contour effect
+                    const thresholds = [0.25, 0.5, 0.75];
+                    for (const threshold of thresholds) {
+                        if (Math.abs(regionVariation - threshold) < 0.02) {
+                            ctx.beginPath();
+                            ctx.arc(x, z, 1, 0, Math.PI * 2);
+                            ctx.stroke();
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Add a legend for biome size variation
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(10, 10, 150, 80);
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fillText('Biome Size Variation:', 20, 30);
+            ctx.fillText('Larger biomes', 20, 50);
+            ctx.fillText('Smaller biomes', 20, 70);
+            
+            // Draw gradient bar
+            const gradientBar = ctx.createLinearGradient(20, 80, 140, 80);
+            gradientBar.addColorStop(0, 'blue');
+            gradientBar.addColorStop(0.5, 'green');
+            gradientBar.addColorStop(1, 'red');
+            ctx.fillStyle = gradientBar;
+            ctx.fillRect(20, 75, 120, 10);
+            
+            ctx.restore();
+        }
     }
     
     // Helper function to convert hex to RGB
