@@ -48,7 +48,44 @@ async function createSharkModel() {
     // Adjust scale and position as needed
     model.scale.set(1, 1, 1);    // Adjust based on your game's scale
     model.position.set(0, 0, 0); // Set initial position
+    
+    // After examining the model, we need to rotate it correctly
+    // Try adding a small rotation to align with the negative Z axis (forward direction)
+    // The exact angle depends on the original model orientation
+    model.rotation.y = 0; // Reset to default, we'll add direction indicators
 
+    // Add direction indicators to help debug the model's orientation
+    // Red arrow points in local +X direction
+    const xArrow = new THREE.ArrowHelper(
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, 0),
+        3,
+        0xff0000
+    );
+    
+    // Green arrow points in local +Y direction
+    const yArrow = new THREE.ArrowHelper(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, 0, 0),
+        3,
+        0x00ff00
+    );
+    
+    // Blue arrow points in local +Z direction
+    const zArrow = new THREE.ArrowHelper(
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(0, 0, 0),
+        3,
+        0x0000ff
+    );
+    
+    // Add helpers to the model
+    model.add(xArrow);
+    model.add(yArrow);
+    model.add(zArrow);
+    
+    console.log("Loaded shark model:", model);
+    
     return model;
 }
 
@@ -145,7 +182,8 @@ export async function spawnShark() {
                     turnDirection: Math.random() > 0.5 ? 1 : -1, // For turning behaviors
                     turnDuration: 2000 + Math.random() * 2000, // How long to turn
                     zigZagInterval: 2000 + Math.random() * 1000 // Time between zigzags
-                }
+                },
+                previousQuaternion: sharkModel.quaternion.clone() // Initialize with the starting rotation
             };
             
             // Add to game sharks array
@@ -258,14 +296,39 @@ function updateSharkBehavior(shark, deltaTime, sub) {
                 
                 // Calculate position on circle around submarine
                 const circleRadius = 60 + Math.sin(shark.behaviorState.phase * 0.2) * 20;
-                const circlePos = new THREE.Vector3(
+                
+                // Calculate next position on circle
+                // This approach ensures the shark is always swimming forward in the direction it's facing
+                const nextPhase = shark.behaviorState.phase + deltaTime * 0.6;
+                
+                // Current position on circle
+                const currentCirclePos = new THREE.Vector3(
                     Math.cos(shark.behaviorState.phase) * circleRadius,
                     Math.sin(shark.behaviorState.phase * 0.3) * 20, // Slight vertical oscillation
                     Math.sin(shark.behaviorState.phase) * circleRadius
                 );
                 
+                // Next position on circle to determine movement direction
+                const nextCirclePos = new THREE.Vector3(
+                    Math.cos(nextPhase) * circleRadius,
+                    Math.sin(nextPhase * 0.3) * 20,
+                    Math.sin(nextPhase) * circleRadius
+                );
+                
+                // Calculate direction by subtracting current from next position
+                const circleDirection = nextCirclePos.clone().sub(currentCirclePos).normalize();
+                
+                // Calculate target point that is ahead on the circle path
+                const anticipationDistance = 30; // Look ahead distance
+                const anticipatedPos = currentCirclePos.clone().add(
+                    circleDirection.clone().multiplyScalar(anticipationDistance)
+                );
+                
                 // Set target relative to submarine
-                targetPosition = sub.position.clone().add(circlePos);
+                targetPosition = sub.position.clone().add(anticipatedPos);
+                
+                // Store the phase for next update
+                shark.behaviorState.lastPhase = shark.behaviorState.phase;
             } else {
                 // If too far from sub, move toward it
                 targetPosition = sub.position.clone().add(
@@ -458,29 +521,46 @@ export function updateSharks(deltaTime) {
                     targetDirection.y = Math.min(targetDirection.y, -0.5);
                 }
                 
-                // Create rotation quaternion toward target
-                const targetQuaternion = new THREE.Quaternion();
-                const lookAtMatrix = new THREE.Matrix4();
-                lookAtMatrix.lookAt(
-                    new THREE.Vector3(0, 0, 0),
-                    targetDirection,
+                // Directly set the shark to look at the target position
+                // This ensures the front of the shark faces the direction of travel
+                const sharkPosition = shark.object.position.clone();
+                const targetPosition = sharkPosition.clone().add(targetDirection);
+                
+                const newQuaternion = new THREE.Quaternion();
+                const newRotation = new THREE.Matrix4();
+                
+                // Create a matrix that looks from the shark's position toward the target
+                newRotation.lookAt(
+                    sharkPosition,
+                    targetPosition,
                     new THREE.Vector3(0, 1, 0)
                 );
-                targetQuaternion.setFromRotationMatrix(lookAtMatrix);
                 
-                // Smoothly rotate toward target with limited turn speed
-                const turnAmount = Math.min(shark.turnSpeed, 0.03);
-                shark.object.quaternion.slerp(targetQuaternion, turnAmount);
+                // Convert the matrix to a quaternion
+                newQuaternion.setFromRotationMatrix(newRotation);
                 
-                // Get forward direction from shark's rotation
-                const forward = new THREE.Vector3(0, 0, -1);
+                // Apply smooth rotation to make it look more natural
+                // The higher the factor, the faster the turn
+                const turnAmount = Math.min(shark.turnSpeed * (deltaTime / 16), 0.05); // Scale by deltaTime for consistent turning regardless of frame rate
+                
+                // Apply the new rotation with smooth interpolation
+                shark.object.quaternion.slerp(newQuaternion, turnAmount);
+                
+                // Move the shark in the direction it's facing
+                // Based on the model orientation, we need to adjust which axis is "forward"
+                // For now, we'll try using the positive Z axis
+                const forward = new THREE.Vector3(0, 0, 1);
                 forward.applyQuaternion(shark.object.quaternion);
                 
                 // Move in that direction
-                shark.object.position.addScaledVector(forward, shark.speed);
+                const movementSpeed = shark.speed;
+                shark.object.position.addScaledVector(forward, movementSpeed);
                 
-                // Update shark velocity
-                shark.velocity.copy(forward).multiplyScalar(shark.speed);
+                // Update shark velocity to match its forward direction
+                shark.velocity.copy(forward).multiplyScalar(movementSpeed);
+                
+                // Adjust swim cycle for animation
+                shark.swimCycle += deltaTime * 5 * movementSpeed;
             } catch (error) {
                 console.error('Error updating shark:', error);
                 sharksToRemove.push(index);
