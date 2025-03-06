@@ -489,9 +489,21 @@ export function updateSharks(deltaTime) {
                     // Store valid height for future reference
                     shark.lastTerrainHeight = terrainHeight;
                     
+                    // Check if shark is below terrain and adjust if needed
+                    const collisionBuffer = 10; // Buffer distance to keep above terrain
+                    if (shark.object.position.y < terrainHeight + collisionBuffer) {
+                        // Push shark above terrain immediately to prevent clipping
+                        shark.object.position.y = terrainHeight + collisionBuffer;
+                        
+                        // Modify target direction to swim upward away from terrain
+                        targetDirection.y = Math.max(targetDirection.y, 0.7);
+                    } 
                     // Avoid getting too close to terrain
-                    if (shark.object.position.y - terrainHeight < SHARK_MIN_HEIGHT) {
-                        targetDirection.y = Math.max(targetDirection.y, 0.5);
+                    else if (shark.object.position.y - terrainHeight < SHARK_MIN_HEIGHT) {
+                        // Gradually steer upward as we get closer to terrain
+                        const distanceToTerrain = shark.object.position.y - terrainHeight;
+                        const urgencyFactor = 1 - (distanceToTerrain / SHARK_MIN_HEIGHT);
+                        targetDirection.y = Math.max(targetDirection.y, 0.4 * urgencyFactor);
                     }
                 };
                 
@@ -499,8 +511,20 @@ export function updateSharks(deltaTime) {
                 if (terrainHeightResult instanceof Promise) {
                     // If it's a Promise, use last known height immediately and update when Promise resolves
                     if (shark.lastTerrainHeight !== undefined) {
-                        if (shark.object.position.y - shark.lastTerrainHeight < SHARK_MIN_HEIGHT) {
-                            targetDirection.y = Math.max(targetDirection.y, 0.5);
+                        // Check if shark is below terrain and adjust if needed
+                        const collisionBuffer = 10;
+                        if (shark.object.position.y < shark.lastTerrainHeight + collisionBuffer) {
+                            // Push shark above terrain immediately to prevent clipping
+                            shark.object.position.y = shark.lastTerrainHeight + collisionBuffer;
+                            
+                            // Modify target direction to swim upward away from terrain
+                            targetDirection.y = Math.max(targetDirection.y, 0.7);
+                        } 
+                        // Avoid getting too close
+                        else if (shark.object.position.y - shark.lastTerrainHeight < SHARK_MIN_HEIGHT) {
+                            const distanceToTerrain = shark.object.position.y - shark.lastTerrainHeight;
+                            const urgencyFactor = 1 - (distanceToTerrain / SHARK_MIN_HEIGHT);
+                            targetDirection.y = Math.max(targetDirection.y, 0.4 * urgencyFactor);
                         }
                     }
                     
@@ -554,7 +578,19 @@ export function updateSharks(deltaTime) {
                 
                 // Move in that direction
                 const movementSpeed = shark.speed;
-                shark.object.position.addScaledVector(forward, movementSpeed);
+                const newPosition = shark.object.position.clone().addScaledVector(forward, movementSpeed);
+                
+                // Final terrain check before committing to the new position
+                const finalTerrainHeight = shark.lastTerrainHeight;
+                const minSafeHeight = finalTerrainHeight + 10; // 10 unit buffer
+                
+                // If we would move below terrain, adjust to safe height
+                if (finalTerrainHeight !== undefined && newPosition.y < minSafeHeight) {
+                    newPosition.y = minSafeHeight;
+                }
+                
+                // Set new position
+                shark.object.position.copy(newPosition);
                 
                 // Update shark velocity to match its forward direction
                 shark.velocity.copy(forward).multiplyScalar(movementSpeed);
