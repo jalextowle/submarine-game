@@ -39,10 +39,46 @@ function createTargetingStatus() {
 
 // Update the dashboard
 export function updateDashboard() {
+    // Update depth meter
+    updateDepthIndicator();
+    
     // Update targeting status
     updateTargetingStatus();
     
     // Future dashboard updates can be added here
+}
+
+// Update the depth indicator with current submarine depth
+function updateDepthIndicator() {
+    try {
+        const depthValueElement = document.getElementById('depth-value');
+        const depthLabelElement = document.getElementById('depth-label');
+        if (!depthValueElement || !depthLabelElement) return;
+        
+        // Get the current submarine depth from game state
+        if (gameState.submarine && gameState.submarine.object) {
+            // Get submarine's y position directly
+            const yPosition = gameState.submarine.object.position.y;
+            
+            // If submarine is at or above water level (y >= 0), show height
+            if (yPosition >= 0) {
+                depthLabelElement.textContent = "Height: ";
+                depthValueElement.textContent = Math.floor(yPosition);
+            } 
+            // If submarine is below water but the depth value is negative (indicating it's actually above water)
+            else if (gameState.submarine.depth < 0) {
+                depthLabelElement.textContent = "Height: ";
+                depthValueElement.textContent = Math.abs(gameState.submarine.depth);
+            }
+            // Normal underwater case
+            else {
+                depthLabelElement.textContent = "Depth: ";
+                depthValueElement.textContent = gameState.submarine.depth;
+            }
+        }
+    } catch (error) {
+        console.error('Error updating depth indicator:', error);
+    }
 }
 
 // Update targeting status display
