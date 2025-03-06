@@ -160,6 +160,9 @@ function animate() {
         // Request next frame
         requestAnimationFrame(animate);
         
+        // Increment frame counter for performance optimizations
+        gameState.frameCount++;
+        
         // Calculate delta time
         const deltaTime = gameState.clock.getDelta();
         
@@ -178,19 +181,25 @@ function animate() {
         // Update torpedoes
         updateTorpedoes(deltaTime);
         
+        // Check if we have active explosions (for performance optimization)
+        const hasExplosions = gameState.explosions && gameState.explosions.length > 0;
+        
         // Update explosions
         updateExplosions();
         
-        // Update chunks for infinite world - always call to ensure smooth updates
-        if (gameState.chunkSystem) {
+        // Performance optimization - reduce update frequency of non-critical systems when explosions are active
+        const skipNonEssentials = hasExplosions && (gameState.frameCount % 2 !== 0);
+        
+        // Update chunks for infinite world - skip every other frame during explosions
+        if (!skipNonEssentials && gameState.chunkSystem) {
             updateChunks();
         }
         
-        // Update water position to follow submarine
+        // Update water position to follow submarine - essential, always update
         updateWaterPosition();
         
-        // Update UI
-        if (gameState.updateUI) {
+        // Update UI - skip every other frame during explosions
+        if (!skipNonEssentials && gameState.updateUI) {
             gameState.updateUI();
         }
         

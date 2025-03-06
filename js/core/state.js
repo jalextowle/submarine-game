@@ -48,6 +48,12 @@ const gameState = {
     explosions: [],              // Array to store active explosions
     gameOver: false,             // Game over state
     updateUI: null,               // Function to update UI
+    frameCount: 0,               // Added to track frame count for optimization
+    performanceSettings: {
+        lowQualityExplosions: false,   // Changed to false to ensure effects are visible
+        disableExplosionLights: false, // Changed to false to ensure visual feedback
+        maxSimultaneousExplosions: 4   // Increased to 4 for better visual experience
+    },
     chunkSystem: null,
     currentChunk: { x: 0, z: 0 },
     messageSystem: {
@@ -113,6 +119,7 @@ export function resetGameState() {
     gameState.torpedoes = [];
     gameState.explosions = [];
     gameState.gameOver = false;
+    gameState.frameCount = 0; // Reset frame counter
     
     // Reset the clock if it exists
     if (gameState.clock) {
@@ -121,6 +128,12 @@ export function resetGameState() {
         } else {
             gameState.clock.start();
         }
+    }
+    
+    // Clear all chunks if using chunk system
+    if (gameState.chunkSystem) {
+        gameState.chunkSystem.clear();
+        gameState.currentChunk = { x: 0, z: 0 };
     }
 }
 

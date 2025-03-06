@@ -7,15 +7,17 @@ import { debug } from '../core/debug.js';
 // Create a bubble trail effect behind moving objects
 export function createBubbleTrail(position, size = 1) {
     try {
-        // Create bubble particles
-        const particleCount = Math.floor(Math.random() * 3) + 2; // Random number of bubbles
-        const bubbleSize = size * (Math.random() * 0.5 + 0.5); // Varied size
+        // Create bubble with higher probability (removing the 50% skip)
         
-        const bubbleGeometry = new THREE.SphereGeometry(bubbleSize, 8, 8);
+        // Create bubble particles
+        const bubbleSize = size * (Math.random() * 0.5 + 0.5); // Restored to original size range
+        
+        // Use reasonable segment count - balance between performance and appearance
+        const bubbleGeometry = new THREE.SphereGeometry(bubbleSize, 6, 6); // Moderate segment count
         const bubbleMaterial = new THREE.MeshPhongMaterial({
             color: 0xFFFFFF,
             transparent: true,
-            opacity: 0.3,
+            opacity: 0.4, // Increased opacity for better visibility
             shininess: 90
         });
         
@@ -31,8 +33,8 @@ export function createBubbleTrail(position, size = 1) {
         // Add bubble to scene
         gameState.scene.add(bubble);
         
-        // Animate bubble rising and fading
-        const maxAge = 2000 + Math.random() * 1000; // Random lifespan
+        // Medium lifetime - balance between visibility and performance
+        const maxAge = 1500 + Math.random() * 800;
         const startTime = Date.now();
         
         // Rising speed (faster near surface)
@@ -51,19 +53,22 @@ export function createBubbleTrail(position, size = 1) {
                 return;
             }
             
-            // Make bubbles rise (move upward)
-            bubble.position.y += riseSpeed * (1 + age / maxAge); // Accelerate as they rise
+            // Optimize updates - update every other frame for smooth appearance
+            if (gameState.frameCount % 2 === 0) {
+                // Make bubbles rise (move upward)
+                bubble.position.y += riseSpeed * (1 + age / maxAge); // Accelerate as they rise
+                
+                // Add some random movement but moderate for performance
+                bubble.position.x += (Math.random() - 0.5) * 0.03;
+                bubble.position.z += (Math.random() - 0.5) * 0.03;
+                
+                // Scale up slightly as they rise
+                const scale = 1 + (age / maxAge) * 0.5;
+                bubble.scale.set(scale, scale, scale);
+            }
             
-            // Add some random movement
-            bubble.position.x += (Math.random() - 0.5) * 0.05;
-            bubble.position.z += (Math.random() - 0.5) * 0.05;
-            
-            // Scale up slightly as they rise
-            const scale = 1 + (age / maxAge) * 0.5;
-            bubble.scale.set(scale, scale, scale);
-            
-            // Fade out as they age
-            bubble.material.opacity = 0.3 * (1 - age / maxAge);
+            // Fade out as they age but keep visible
+            bubble.material.opacity = 0.4 * (1 - Math.pow(age / maxAge, 1.2));
             
             requestAnimationFrame(animateBubble);
         };
@@ -79,7 +84,23 @@ export function createBubbleTrail(position, size = 1) {
 // Create a larger bubble burst effect (multiple bubbles)
 export function createBubbleBurst(position, count = 10, size = 1) {
     try {
-        for (let i = 0; i < count; i++) {
+        // Use a reasonable number of bubbles for visual impact
+        const actualCount = Math.min(count, 10);
+        
+        // Count the current number of explosion-related effects
+        const totalExplosions = gameState.explosions ? gameState.explosions.length : 0;
+        
+        // Adaptive bubble count based on active explosions
+        let bubblesPerExplosion = 8;
+        if (totalExplosions >= 3) {
+            bubblesPerExplosion = 5;
+        } else if (totalExplosions >= 2) {
+            bubblesPerExplosion = 6;
+        }
+        
+        const finalCount = Math.min(actualCount, bubblesPerExplosion);
+        
+        for (let i = 0; i < finalCount; i++) {
             // Create bubble with random offset
             const offset = new THREE.Vector3(
                 (Math.random() - 0.5) * size,

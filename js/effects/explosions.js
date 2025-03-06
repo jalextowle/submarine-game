@@ -9,15 +9,26 @@ import { createBubbleBurst } from './bubbleEffects.js';
 export function createExplosion(position, size = 5) {
     debug('Creating explosion');
     try {
-        // Create explosion particles
-        const particleCount = 30 * size;
+        // Check performance limits - but always allow at least the newest explosion
+        if (gameState.explosions.length >= gameState.performanceSettings.maxSimultaneousExplosions) {
+            // We've reached the maximum number of simultaneous explosions
+            // Remove the oldest explosion to make room for the new one
+            const oldestExplosion = gameState.explosions[0];
+            if (oldestExplosion.particles) gameState.scene.remove(oldestExplosion.particles);
+            if (oldestExplosion.light) gameState.scene.remove(oldestExplosion.light);
+            gameState.explosions.shift();
+        }
+        
+        // Create explosion particles - ensure we have enough particles to be visible
+        const particleCount = Math.min(12 * size, 60); // Increased from previous values to ensure visibility
+            
         const particleGeometry = new THREE.BufferGeometry();
         const particleMaterial = new THREE.PointsMaterial({
             color: 0xFF9933,
-            size: 0.8,
+            size: 1.2, // Increased particle size for better visibility
             blending: THREE.AdditiveBlending,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.9 // Increased opacity
         });
         
         // Generate random particle positions
@@ -32,11 +43,11 @@ export function createExplosion(position, size = 5) {
             positions[i3 + 1] = (Math.random() - 0.5) * 0.5;
             positions[i3 + 2] = (Math.random() - 0.5) * 0.5;
             
-            // Random velocity
+            // Increased velocity for more visible expansion
             velocities[i] = new THREE.Vector3(
-                (Math.random() - 0.5) * 0.3,
-                (Math.random() - 0.5) * 0.3,
-                (Math.random() - 0.5) * 0.3
+                (Math.random() - 0.5) * 0.25,
+                (Math.random() - 0.5) * 0.25,
+                (Math.random() - 0.5) * 0.25
             );
         }
         
@@ -49,20 +60,20 @@ export function createExplosion(position, size = 5) {
         // Add to scene
         gameState.scene.add(explosionParticles);
         
-        // Add a point light at explosion location
-        const explosionLight = new THREE.PointLight(0xFF9933, 2, size * 10);
+        // Always include a light for better visibility, but optimize it
+        let explosionLight = new THREE.PointLight(0xFF9933, 1.5, size * 6);
         explosionLight.position.copy(position);
         gameState.scene.add(explosionLight);
         
-        // Create bubble burst effect
-        createBubbleBurst(position, 20, size * 0.5);
+        // Add bubble effect for visual interest - always create some bubbles
+        createBubbleBurst(position, 10, size * 0.4);
         
-        // Add to explosion array for updating
+        // Add to explosion array for updating - ensure it's visible long enough
         gameState.explosions.push({
             particles: explosionParticles,
             light: explosionLight,
             velocities: velocities,
-            maxAge: 1500,
+            maxAge: 1000, // Longer lifetime to ensure visibility
             createdTime: Date.now(),
             size: size
         });
@@ -77,6 +88,19 @@ export function createExplosion(position, size = 5) {
 // Update all explosions (particle movement, fading, etc.)
 export function updateExplosions() {
     try {
+        // Limit maximum number of explosions for performance
+        const maxExplosions = gameState.performanceSettings.maxSimultaneousExplosions;
+        if (gameState.explosions.length > maxExplosions) {
+            // Remove the oldest explosions when we have too many
+            const countToRemove = gameState.explosions.length - maxExplosions;
+            for (let i = 0; i < countToRemove; i++) {
+                const explosion = gameState.explosions[0]; // Get oldest explosion
+                if (explosion.particles) gameState.scene.remove(explosion.particles);
+                if (explosion.light) gameState.scene.remove(explosion.light);
+                gameState.explosions.shift(); // Remove from beginning of array
+            }
+        }
+        
         const currentTime = Date.now();
         const explosionsToRemove = [];
         
@@ -92,34 +116,36 @@ export function updateExplosions() {
             // Get normalized age (0-1)
             const lifePhase = age / explosion.maxAge;
             
-            // Update particle positions
-            const positions = explosion.particles.geometry.attributes.position.array;
-            
-            for (let i = 0; i < explosion.velocities.length; i++) {
-                const i3 = i * 3;
+            // Update particle positions - update more frequently for smoother effect
+            if (gameState.frameCount % 2 === 0) {
+                const positions = explosion.particles.geometry.attributes.position.array;
                 
-                // Slow down over time with underwater resistance
-                const slowdown = 1 - lifePhase * 0.7;
-                
-                // Update position based on velocity
-                positions[i3] += explosion.velocities[i].x * slowdown;
-                positions[i3 + 1] += explosion.velocities[i].y * slowdown;
-                positions[i3 + 2] += explosion.velocities[i].z * slowdown;
-                
-                // Add upward drift for later stages (bubbles rising)
-                if (lifePhase > 0.5) {
-                    positions[i3 + 1] += 0.01 * (lifePhase - 0.5) * 2;
+                for (let i = 0; i < explosion.velocities.length; i++) {
+                    const i3 = i * 3;
+                    
+                    // Slow down over time with underwater resistance
+                    const slowdown = 1 - lifePhase * 0.7;
+                    
+                    // Update position based on velocity
+                    positions[i3] += explosion.velocities[i].x * slowdown;
+                    positions[i3 + 1] += explosion.velocities[i].y * slowdown;
+                    positions[i3 + 2] += explosion.velocities[i].z * slowdown;
+                    
+                    // Add upward drift for later stages
+                    if (lifePhase > 0.5) {
+                        positions[i3 + 1] += 0.01;
+                    }
                 }
+                
+                explosion.particles.geometry.attributes.position.needsUpdate = true;
             }
             
-            explosion.particles.geometry.attributes.position.needsUpdate = true;
-            
-            // Fade particles
-            explosion.particles.material.opacity = 0.8 * (1 - lifePhase);
+            // Fade particles - but keep them visible longer
+            explosion.particles.material.opacity = 0.9 * (1 - Math.pow(lifePhase, 1.5));
             
             // Fade light
             if (explosion.light) {
-                explosion.light.intensity = 2 * (1 - lifePhase);
+                explosion.light.intensity = 1.5 * (1 - lifePhase);
             }
         });
         
