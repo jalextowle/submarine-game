@@ -17,6 +17,13 @@ const SHARK_DESPAWN_DISTANCE = 600; // Distance at which sharks despawn
 const SHARK_MIN_HEIGHT = 30; // Minimum height above ocean floor
 const MAX_SHARKS = 15; // Maximum number of sharks in the game at once
 const SHARK_SPAWN_INTERVAL = 3000; // Time between spawning attempts (ms)
+const SHARK_DIRECTION_CHANGE_INTERVAL = 5000; // ms between direction changes
+const SHARK_BEHAVIOR_PATTERNS = [
+    'straight', // Swim in a straight line
+    'gentle_turn', // Make gentle turns
+    'circling', // Circle around the submarine
+    'zig_zag' // Zig-zag pattern
+];
 const SHARK_DENSITY_BY_BIOME = {
     [BIOME_TYPES.FLAT_SANDY]: 0.6,
     [BIOME_TYPES.CONTINENTAL_SHELF]: 1.0, // Most sharks here
@@ -163,6 +170,11 @@ export function spawnShark() {
             // Add to scene
             gameState.scene.add(sharkModel);
             
+            // Pick a movement behavior pattern
+            const behaviorPattern = SHARK_BEHAVIOR_PATTERNS[
+                Math.floor(Math.random() * SHARK_BEHAVIOR_PATTERNS.length)
+            ];
+            
             // Create shark data
             const shark = {
                 object: sharkModel,
@@ -175,7 +187,16 @@ export function spawnShark() {
                 turnSpeed: SHARK_TURN_SPEED * (0.8 + Math.random() * 0.4), // Slightly randomize turn speed
                 speed: SHARK_SPEED * (0.7 + Math.random() * 0.6), // Randomize speed a bit
                 swimCycle: Math.random() * Math.PI * 2, // For swimming animation
-                lastTerrainHeight: terrainHeight
+                lastTerrainHeight: terrainHeight,
+                lastDirectionChange: Date.now(),
+                behaviorPattern: behaviorPattern,
+                behaviorState: {
+                    phase: 0, // For cyclic behaviors
+                    straightLineDuration: 3000 + Math.random() * 4000, // Time to swim straight
+                    turnDirection: Math.random() > 0.5 ? 1 : -1, // For turning behaviors
+                    turnDuration: 2000 + Math.random() * 2000, // How long to turn
+                    zigZagInterval: 2000 + Math.random() * 1000 // Time between zigzags
+                }
             };
             
             // Add to game sharks array
@@ -183,7 +204,7 @@ export function spawnShark() {
             
             // Use safe output to avoid toFixed errors
             try {
-                debug(`Spawned shark at ${Math.floor(spawnX)}, ${Math.floor(spawnY)}, ${Math.floor(spawnZ)}`);
+                debug(`Spawned shark at ${Math.floor(spawnX)}, ${Math.floor(spawnY)}, ${Math.floor(spawnZ)} with ${behaviorPattern} behavior`);
             } catch (e) {
                 debug('Spawned shark (position logging error)');
             }
@@ -207,6 +228,160 @@ export function spawnShark() {
     } catch (error) {
         console.error('Error in spawnShark:', error);
     }
+}
+
+// Update shark behavior based on its pattern
+function updateSharkBehavior(shark, deltaTime, sub) {
+    // Target position for the shark
+    let targetPosition = null;
+    const currentTime = Date.now();
+    
+    // Update behavior state based on pattern
+    switch (shark.behaviorPattern) {
+        case 'straight':
+            // Change direction periodically
+            if (currentTime - shark.lastDirectionChange > shark.behaviorState.straightLineDuration) {
+                // Pick new random direction
+                const randomDir = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 2
+                ).normalize();
+                
+                // Set new target far away in that direction
+                targetPosition = shark.object.position.clone().add(
+                    randomDir.multiplyScalar(300)
+                );
+                
+                shark.lastDirectionChange = currentTime;
+                shark.behaviorState.straightLineDuration = 3000 + Math.random() * 4000;
+            } else if (!shark.targetPosition) {
+                // Initial target
+                const randomDir = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 2
+                ).normalize();
+                
+                targetPosition = shark.object.position.clone().add(
+                    randomDir.multiplyScalar(300)
+                );
+            } else {
+                // Keep existing target
+                targetPosition = shark.targetPosition;
+            }
+            break;
+            
+        case 'gentle_turn':
+            // Update turn phase
+            shark.behaviorState.phase += deltaTime * 0.2;
+            
+            // Create a gently curving path
+            const turnOffset = new THREE.Vector3(
+                Math.sin(shark.behaviorState.phase) * 50 * shark.behaviorState.turnDirection,
+                Math.sin(shark.behaviorState.phase * 0.5) * 20,
+                Math.cos(shark.behaviorState.phase) * 50 * shark.behaviorState.turnDirection
+            );
+            
+            // Set target ahead with curve offset
+            const forwardDir = new THREE.Vector3(0, 0, -1)
+                .applyQuaternion(shark.object.quaternion)
+                .multiplyScalar(100);
+                
+            targetPosition = shark.object.position.clone()
+                .add(forwardDir)
+                .add(turnOffset);
+                
+            // Occasionally change turn direction
+            if (currentTime - shark.lastDirectionChange > shark.behaviorState.turnDuration) {
+                shark.behaviorState.turnDirection *= -1;
+                shark.lastDirectionChange = currentTime;
+                shark.behaviorState.turnDuration = 2000 + Math.random() * 2000;
+            }
+            break;
+            
+        case 'circling':
+            // Only circle if submarine is within range
+            const distToSub = shark.object.position.distanceTo(sub.position);
+            if (distToSub < 150) {
+                // Update circle phase
+                shark.behaviorState.phase += deltaTime * 0.5;
+                
+                // Calculate position on circle around submarine
+                const circleRadius = 60 + Math.sin(shark.behaviorState.phase * 0.2) * 20;
+                const circlePos = new THREE.Vector3(
+                    Math.cos(shark.behaviorState.phase) * circleRadius,
+                    Math.sin(shark.behaviorState.phase * 0.3) * 20, // Slight vertical oscillation
+                    Math.sin(shark.behaviorState.phase) * circleRadius
+                );
+                
+                // Set target relative to submarine
+                targetPosition = sub.position.clone().add(circlePos);
+            } else {
+                // If too far from sub, move toward it
+                targetPosition = sub.position.clone().add(
+                    new THREE.Vector3(
+                        (Math.random() - 0.5) * 100,
+                        (Math.random() - 0.5) * 50,
+                        (Math.random() - 0.5) * 100
+                    )
+                );
+            }
+            break;
+            
+        case 'zig_zag':
+            // Update zig-zag phase
+            if (currentTime - shark.lastDirectionChange > shark.behaviorState.zigZagInterval) {
+                // Switch zig-zag direction
+                shark.behaviorState.turnDirection *= -1;
+                shark.lastDirectionChange = currentTime;
+            }
+            
+            // Get forward direction
+            const forward = new THREE.Vector3(0, 0, -1)
+                .applyQuaternion(shark.object.quaternion)
+                .multiplyScalar(100);
+                
+            // Get side direction based on current zigzag phase
+            const side = new THREE.Vector3(1, 0, 0)
+                .applyQuaternion(shark.object.quaternion)
+                .multiplyScalar(40 * shark.behaviorState.turnDirection);
+                
+            // Create zigzag path
+            targetPosition = shark.object.position.clone()
+                .add(forward)
+                .add(side);
+            break;
+            
+        default:
+            // Fallback to basic targeting like before
+            if (Math.random() < 0.005) {
+                const distanceToSub = shark.object.position.distanceTo(sub.position);
+                const targetSub = distanceToSub < 200 && Math.random() < 0.3;
+                
+                if (targetSub) {
+                    targetPosition = sub.position.clone().add(
+                        new THREE.Vector3(
+                            (Math.random() - 0.5) * 50,
+                            (Math.random() - 0.5) * 30,
+                            (Math.random() - 0.5) * 50
+                        )
+                    );
+                } else {
+                    targetPosition = shark.object.position.clone().add(
+                        new THREE.Vector3(
+                            (Math.random() - 0.5) * 150,
+                            (Math.random() - 0.5) * 50,
+                            (Math.random() - 0.5) * 150
+                        )
+                    );
+                }
+            } else {
+                targetPosition = shark.targetPosition;
+            }
+    }
+    
+    return targetPosition;
 }
 
 // Update all sharks
@@ -259,30 +434,18 @@ export function updateSharks(deltaTime) {
                     fin.rotation.x = Math.sin(shark.swimCycle) * 0.2;
                 });
                 
-                // Periodically update target position (shark intelligence)
-                if (!shark.targetPosition || Math.random() < 0.005) {
-                    // Sometimes target the submarine
-                    const targetSub = distanceToSub < 200 && Math.random() < 0.3;
-                    
-                    if (targetSub) {
-                        // Target slightly offset from sub position for more natural movement
-                        shark.targetPosition = sub.position.clone().add(
-                            new THREE.Vector3(
-                                (Math.random() - 0.5) * 50,
-                                (Math.random() - 0.5) * 30,
-                                (Math.random() - 0.5) * 50
-                            )
-                        );
-                    } else {
-                        // Random position near current location
-                        shark.targetPosition = shark.object.position.clone().add(
-                            new THREE.Vector3(
-                                (Math.random() - 0.5) * 150,
-                                (Math.random() - 0.5) * 50,
-                                (Math.random() - 0.5) * 150
-                            )
-                        );
-                    }
+                // Update shark behavior and get target position
+                shark.targetPosition = updateSharkBehavior(shark, deltaTime, sub);
+                
+                // If we don't have a target position yet, use a default
+                if (!shark.targetPosition) {
+                    shark.targetPosition = shark.object.position.clone().add(
+                        new THREE.Vector3(
+                            (Math.random() - 0.5) * 150,
+                            (Math.random() - 0.5) * 50,
+                            (Math.random() - 0.5) * 150
+                        )
+                    );
                 }
                 
                 // Calculate direction to target
@@ -354,8 +517,9 @@ export function updateSharks(deltaTime) {
                 );
                 targetQuaternion.setFromRotationMatrix(lookAtMatrix);
                 
-                // Smoothly rotate toward target
-                shark.object.quaternion.slerp(targetQuaternion, shark.turnSpeed);
+                // Smoothly rotate toward target with limited turn speed
+                const turnAmount = Math.min(shark.turnSpeed, 0.03);
+                shark.object.quaternion.slerp(targetQuaternion, turnAmount);
                 
                 // Get forward direction from shark's rotation
                 const forward = new THREE.Vector3(0, 0, -1);

@@ -21,7 +21,7 @@ import { createSubmarine } from './submarine/submarine.js';
 import { updateSubmarinePhysics } from './submarine/physics.js';
 import { checkSubmarineCollisions } from './submarine/collisions.js';
 import { updateSubmarineCamera } from './submarine/camera.js';
-import { updateTorpedoes, handleTorpedoFiring } from './submarine/torpedo.js';
+import { updateTorpedoes, handleTorpedoFiring, resetTargeting } from './submarine/torpedo.js';
 
 // UI imports
 import { createInstructions } from './ui/instructions.js';
@@ -39,6 +39,9 @@ export function initGame() {
     try {
         // Reset game state in case of restart
         resetGameState();
+        
+        // Reset torpedo targeting system
+        resetTargeting();
         
         // Initialize the scene and renderer
         initScene();

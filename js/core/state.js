@@ -135,6 +135,15 @@ export function resetGameState() {
         gameState.chunkSystem.clear();
         gameState.currentChunk = { x: 0, z: 0 };
     }
+    
+    // Reset torpedo targeting if available
+    import('../submarine/torpedo.js').then(module => {
+        if (module.resetTargeting) {
+            module.resetTargeting();
+        }
+    }).catch(error => {
+        console.error('Error importing torpedo module for reset:', error);
+    });
 }
 
 // Export game state as default
