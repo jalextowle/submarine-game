@@ -1,6 +1,7 @@
 // Shark creation and management for the submarine game
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import gameState from '../core/state.js';
 import { debug } from '../core/debug.js';
 import perlinNoise from '../utils/perlinNoise.js';
@@ -39,72 +40,20 @@ export function initSharkSystem() {
     gameState.lastSharkSpawnTime = 0;
 }
 
-// Create a shark model
-function createSharkModel() {
-    const shark = new THREE.Group();
-    
-    // Shark body - elongated shape
-    const bodyGeometry = new THREE.CapsuleGeometry(1, 6, 8, 16);
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-        color: 0x505c66, // Gray-blue color
-        roughness: 0.7,
-        metalness: 0.1
-    });
-    
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.rotation.z = Math.PI / 2; // Align with forward direction
-    shark.add(body);
-    
-    // Shark tail
-    const tailGeometry = new THREE.ConeGeometry(1, 2.5, 8);
-    const tail = new THREE.Mesh(tailGeometry, bodyMaterial);
-    tail.position.x = -4; // Behind the body
-    tail.rotation.z = -Math.PI / 2;
-    shark.add(tail);
-    
-    // Dorsal fin
-    const dorsalGeometry = new THREE.ConeGeometry(0.5, 2, 8);
-    const finMaterial = new THREE.MeshStandardMaterial({
-        color: 0x454f57, // Slightly darker than body
-        roughness: 0.8,
-        metalness: 0.1
-    });
-    
-    const dorsalFin = new THREE.Mesh(dorsalGeometry, finMaterial);
-    dorsalFin.position.set(0, 1.5, 0);
-    dorsalFin.rotation.z = Math.PI / 2;
-    shark.add(dorsalFin);
-    
-    // Pectoral fins
-    const pectoralGeometry = new THREE.ConeGeometry(0.3, 1.5, 8);
-    
-    const leftPectoral = new THREE.Mesh(pectoralGeometry, finMaterial);
-    leftPectoral.position.set(1, 0, -1.2);
-    leftPectoral.rotation.set(0, 0, -Math.PI / 4);
-    shark.add(leftPectoral);
-    
-    const rightPectoral = new THREE.Mesh(pectoralGeometry, finMaterial);
-    rightPectoral.position.set(1, 0, 1.2);
-    rightPectoral.rotation.set(0, 0, -Math.PI / 4);
-    shark.add(rightPectoral);
-    
-    // Shark eyes
-    const eyeGeometry = new THREE.SphereGeometry(0.2, 8, 8);
-    const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    
-    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    leftEye.position.set(3, 0.5, -0.7);
-    shark.add(leftEye);
-    
-    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    rightEye.position.set(3, 0.5, 0.7);
-    shark.add(rightEye);
-    
-    return shark;
+async function createSharkModel() {
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync('../models/shark.glb.glb/scene.gltf'); // Load the shark model from js/models directory
+    const model = gltf.scene;
+
+    // Adjust scale and position as needed
+    model.scale.set(1, 1, 1);    // Adjust based on your game's scale
+    model.position.set(0, 0, 0); // Set initial position
+
+    return model;
 }
 
 // Spawn a new shark near the player
-export function spawnShark() {
+export async function spawnShark() {
     try {
         if (gameState.sharks.length >= MAX_SHARKS) {
             return; // Max sharks reached
@@ -140,7 +89,7 @@ export function spawnShark() {
         const terrainHeightResult = getTerrainHeightAtPosition(spawnX, spawnZ);
         
         // Handle promise or direct value
-        const handleTerrainHeight = (terrainHeight) => {
+        const handleTerrainHeight = async (terrainHeight) => {
             // Validate terrain height
             if (isNaN(terrainHeight) || terrainHeight === undefined) {
                 terrainHeight = subPos.y - 100; // Fallback value
@@ -159,7 +108,7 @@ export function spawnShark() {
             const spawnY = minSpawnHeight + Math.random() * (maxSpawnHeight - minSpawnHeight);
             
             // Create shark model
-            const sharkModel = createSharkModel();
+            const sharkModel = await createSharkModel();
             
             // Position shark at spawn location
             sharkModel.position.set(spawnX, spawnY, spawnZ);
@@ -214,12 +163,12 @@ export function spawnShark() {
         
         // Process the terrain height result, which could be a Promise or direct value
         if (terrainHeightResult instanceof Promise) {
-            terrainHeightResult
+            return terrainHeightResult
                 .then(handleTerrainHeight)
                 .catch(error => {
                     console.error('Error getting terrain height for shark:', error);
                     // Use fallback height
-                    handleTerrainHeight(subPos.y - 100);
+                    return handleTerrainHeight(subPos.y - 100);
                 });
         } else {
             // Direct value
@@ -395,7 +344,9 @@ export function updateSharks(deltaTime) {
         // Check if we should try to spawn a new shark
         const currentTime = Date.now();
         if (currentTime - gameState.lastSharkSpawnTime > SHARK_SPAWN_INTERVAL) {
-            spawnShark();
+            spawnShark().catch(error => {
+                console.error('Error spawning shark:', error);
+            });
             gameState.lastSharkSpawnTime = currentTime;
         }
         

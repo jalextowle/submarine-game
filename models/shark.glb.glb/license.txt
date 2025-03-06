@@ -1,0 +1,11 @@
+Model Information:
+* title:	shark.glb.glb
+* source:	https://sketchfab.com/3d-models/sharkglbglb-7b282d2f579e4d31aee8c6a47a8c0180
+* author:	celumdemo (https://sketchfab.com/celumdemo)
+
+Model License:
+* license type:	CC-BY-ND-4.0 (http://creativecommons.org/licenses/by-nd/4.0/)
+* requirements:	Author must be credited. Modified versions can not be distributed. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "shark.glb.glb" (https://sketchfab.com/3d-models/sharkglbglb-7b282d2f579e4d31aee8c6a47a8c0180) by celumdemo (https://sketchfab.com/celumdemo) licensed under CC-BY-ND-4.0 (http://creativecommons.org/licenses/by-nd/4.0/)
