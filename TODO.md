@@ -2,12 +2,12 @@
 
 These are the fixes that annoyed me at the end of the last session.
 
+- [ ] Host the game.
+- [ ] Add enemy submarines that spawn randomly and try to attack the player.
+- [ ] Add coral reefs and other objects underwater.
 - [ ] Fix the wave animations or remove them.
 - [ ] Figure out why height goes from 10m to 0m when the submarine crashes onto the water.
 - [ ] Fix the propellers speed so that it matches the propulsion.
-- [x] Make the world bigger
-- [ ] Improve chunk loading and immersiveness without compromising performance.
-- [ ] Add more interesting terrain like trenches, continental shelfs, islands, and volcanoes.
 - [ ] Unify the different settings that we have into a settings panel.
 
 # Testing
