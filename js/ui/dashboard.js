@@ -8,36 +8,80 @@ import { TORPEDO_COOLDOWN, SURFACE_LEVEL } from '../core/constants.js';
 export function createDashboard() {
     debug('Using original HTML dashboard only');
     
+    // Create targeting status display
+    createTargetingStatus();
+    
     // Store the updateUI function in the game state for use in the game loop
     gameState.updateUI = updateDashboard;
     
     debug('Dashboard configuration complete');
 }
 
-// Update only the original depth meter from HTML
+// Create targeting status display
+function createTargetingStatus() {
+    // Create container for targeting status
+    const targetingStatus = document.createElement('div');
+    targetingStatus.id = 'targeting-status';
+    targetingStatus.style.position = 'absolute';
+    targetingStatus.style.bottom = '20px';
+    targetingStatus.style.right = '20px';
+    targetingStatus.style.color = 'white';
+    targetingStatus.style.fontFamily = 'Arial, sans-serif';
+    targetingStatus.style.fontSize = '14px';
+    targetingStatus.style.padding = '10px';
+    targetingStatus.style.backgroundColor = 'rgba(0,0,0,0.6)';
+    targetingStatus.style.borderRadius = '5px';
+    targetingStatus.style.zIndex = '100';
+    targetingStatus.style.display = 'none'; // Initially hidden
+    
+    document.body.appendChild(targetingStatus);
+}
+
+// Update the dashboard
 export function updateDashboard() {
+    // Update targeting status
+    updateTargetingStatus();
+    
+    // Future dashboard updates can be added here
+}
+
+// Update targeting status display
+function updateTargetingStatus() {
     try {
-        // Get depth-value element from the original HTML
-        const depthValueElement = document.getElementById('depth-value');
-        const depthLabelElement = document.getElementById('depth-label');
+        const targetingStatus = document.getElementById('targeting-status');
+        if (!targetingStatus) return;
         
-        if (!depthValueElement || !depthLabelElement) return;
-        
-        // Update depth or height display
-        if (gameState.submarine.isAirborne) {
-            // When above water, show height as a positive number
-            const height = Math.floor(gameState.submarine.object.position.y);
-            depthValueElement.textContent = height;
-            depthLabelElement.textContent = "Height: ";
+        // Check if we have a target
+        if (window.currentTarget) {
+            const isLocked = window.targetLocked;
+            const hasFired = window.targetFired;
+            
+            // Show appropriate status message
+            let statusText = '';
+            let statusColor = '';
+            
+            if (hasFired) {
+                statusText = 'TORPEDO TRACKING TARGET';
+                statusColor = '#ff9900'; // Orange
+            } else if (isLocked) {
+                statusText = 'TARGET LOCKED - READY TO FIRE';
+                statusColor = '#00ff00'; // Green
+            } else {
+                statusText = 'ACQUIRING TARGET...';
+                statusColor = '#ff0000'; // Red
+            }
+            
+            // Update the status display
+            targetingStatus.textContent = statusText;
+            targetingStatus.style.color = statusColor;
+            targetingStatus.style.display = 'block';
+            
         } else {
-            // When underwater, show depth as usual
-            const depth = Math.max(0, Math.floor(-gameState.submarine.object.position.y));
-            depthValueElement.textContent = depth;
-            depthLabelElement.textContent = "Depth: ";
+            // No target, hide the status
+            targetingStatus.style.display = 'none';
         }
-        
     } catch (error) {
-        console.error('Error in updateDashboard:', error);
+        console.error('Error updating targeting status:', error);
     }
 }
 

@@ -23,6 +23,12 @@ let targetIndicator = null;
 let currentTarget = null;
 let targetLockStartTime = 0;
 let targetLocked = false;
+let targetFired = false; // New flag to track if we've fired at the current target
+
+// Expose targeting state to window for UI to access
+window.currentTarget = currentTarget;
+window.targetLocked = targetLocked;
+window.targetFired = targetFired;
 
 // Create a torpedo from the submarine
 export function createTorpedo() {
@@ -105,8 +111,7 @@ export function createTorpedo() {
         // Reset target lock after firing
         if (targetLocked) {
             gameState.messageSystem.addMessage('Guided torpedo launched!', 2000);
-            removeTargetIndicator();
-            targetLocked = false;
+            targetFired = true; // Mark that we've fired at this target
         } else {
             gameState.messageSystem.addMessage('Torpedo launched', 1500);
         }
@@ -252,16 +257,55 @@ export function updateTorpedoes(deltaTime) {
         const currentTime = Date.now();
         const torpedoesToRemove = [];
         
-        // Try to find a target if we don't have one
-        if (!targetLocked && !currentTarget) {
+        // Always try to find the best target unless we've fired at the current one
+        if (!targetFired) {
             const potentialTarget = findNearestTargetInView();
             
             if (potentialTarget) {
-                // Found a potential target
-                currentTarget = potentialTarget;
-                createTargetIndicator(potentialTarget.object.position);
-                targetLockStartTime = currentTime;
-                gameState.messageSystem.addMessage('Target acquired...', 1000);
+                // If it's a different target or we don't have one yet
+                if (!currentTarget || potentialTarget !== currentTarget) {
+                    // Reset the lock and set the new target
+                    targetLocked = false;
+                    currentTarget = potentialTarget;
+                    createTargetIndicator(potentialTarget.object.position);
+                    targetLockStartTime = currentTime;
+                    
+                    // Only show the message if this is a new target (not just refreshing the same one)
+                    if (!currentTarget) {
+                        gameState.messageSystem.addMessage('Target acquired...', 1000);
+                    }
+                }
+            } else if (currentTarget) {
+                // We lost our target (moved out of view)
+                removeTargetIndicator();
+                currentTarget = null;
+                targetLocked = false;
+            }
+        } else {
+            // We've fired a torpedo, check if the current target still exists
+            if (currentTarget && !gameState.sharks.includes(currentTarget)) {
+                // Target is gone (destroyed or despawned)
+                removeTargetIndicator();
+                currentTarget = null;
+                targetLocked = false;
+                targetFired = false;
+            } else {
+                // Check if any guided torpedoes are still tracking this target
+                let stillTracking = false;
+                
+                if (gameState.torpedoes && gameState.torpedoes.length > 0) {
+                    for (const torpedo of gameState.torpedoes) {
+                        if (torpedo.guided && torpedo.target === currentTarget) {
+                            stillTracking = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // If no torpedoes are tracking the target anymore, reset the targetFired flag
+                if (!stillTracking) {
+                    targetFired = false;
+                }
             }
         }
         
@@ -278,6 +322,11 @@ export function updateTorpedoes(deltaTime) {
                 }
             }
         }
+        
+        // Update the global variables for UI
+        window.currentTarget = currentTarget;
+        window.targetLocked = targetLocked;
+        window.targetFired = targetFired;
         
         // Update target indicator position and animation
         if (targetIndicator && currentTarget) {
@@ -554,4 +603,5 @@ export function resetTargeting() {
     removeTargetIndicator();
     currentTarget = null;
     targetLocked = false;
+    targetFired = false;
 } 
