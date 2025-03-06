@@ -14,6 +14,7 @@ import { createWaterSurface, updateWaterPosition } from './environment/water.js'
 import { createOceanFloor, debugTerrain } from './environment/oceanFloor.js';
 import { initChunkedWorld, updateChunks } from './environment/worldChunks.js';
 import * as biomeSystem from './environment/biomes.js';
+import { initSharkSystem, updateSharks } from './environment/sharks.js';
 
 // Submarine imports
 import { createSubmarine } from './submarine/submarine.js';
@@ -63,6 +64,9 @@ export function initGame() {
         
         // Initialize the infinite chunked world system
         initChunkedWorld();
+        
+        // Initialize shark system
+        initSharkSystem();
         
         // Add debug controls
         setupDebugControls();
@@ -180,6 +184,9 @@ function animate() {
         
         // Update torpedoes
         updateTorpedoes(deltaTime);
+        
+        // Update sharks
+        updateSharks(deltaTime);
         
         // Check if we have active explosions (for performance optimization)
         const hasExplosions = gameState.explosions && gameState.explosions.length > 0;
