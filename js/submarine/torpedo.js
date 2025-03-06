@@ -9,7 +9,7 @@ import { createMuzzleFlash } from '../effects/weaponEffects.js';
 import { createExplosion } from '../effects/explosions.js';
 
 // Constants for torpedo behavior
-const TORPEDO_SPEED = 2.0;
+const TORPEDO_SPEED = 4.0;
 const TORPEDO_LIFETIME = 6000; // 6 seconds
 const TORPEDO_COOLDOWN = 1500; // 1.5 seconds between torpedoes
 
