@@ -7,6 +7,7 @@ import { WORLD_SIZE, OCEAN_DEPTH, SURFACE_LEVEL } from '../core/constants.js';
 import { createBubbleTrail } from '../effects/bubbleEffects.js';
 import { createMuzzleFlash } from '../effects/weaponEffects.js';
 import { createExplosion } from '../effects/explosions.js';
+import { damageEnemySubmarine } from '../environment/enemySubmarines.js';
 
 // Constants for torpedo behavior
 const TORPEDO_SPEED = 4.0;
@@ -221,34 +222,59 @@ function removeTargetIndicator() {
 
 // Find nearest shark in front of submarine
 function findNearestTargetInView() {
-    if (!gameState.sharks || !gameState.submarine.object) return null;
+    if (!gameState.submarine.object) return null;
     
     const subPos = gameState.submarine.object.position;
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(gameState.submarine.object.quaternion);
     
-    let nearestShark = null;
+    let nearestTarget = null;
     let nearestDistance = Infinity;
     
-    gameState.sharks.forEach(shark => {
-        const toShark = new THREE.Vector3().subVectors(shark.object.position, subPos);
-        const distance = toShark.length();
-        
-        if (distance < TARGET_DETECTION_RANGE) {
-            // Check if shark is in front of the submarine (within a cone)
-            toShark.normalize();
-            const angle = forward.angleTo(toShark);
+    // Check sharks as potential targets
+    if (gameState.sharks && gameState.sharks.length > 0) {
+        gameState.sharks.forEach(shark => {
+            const toShark = new THREE.Vector3().subVectors(shark.object.position, subPos);
+            const distance = toShark.length();
             
-            // Only target sharks in a ~60 degree cone in front
-            if (angle < Math.PI / 3) {
-                if (distance < nearestDistance) {
-                    nearestDistance = distance;
-                    nearestShark = shark;
+            if (distance < TARGET_DETECTION_RANGE) {
+                // Check if shark is in front of the submarine (within a cone)
+                toShark.normalize();
+                const angle = forward.angleTo(toShark);
+                
+                // Only target sharks in a ~60 degree cone in front
+                if (angle < Math.PI / 3) {
+                    if (distance < nearestDistance) {
+                        nearestDistance = distance;
+                        nearestTarget = shark;
+                    }
                 }
             }
-        }
-    });
+        });
+    }
     
-    return nearestShark;
+    // Check enemy submarines as potential targets
+    if (gameState.enemySubmarines && gameState.enemySubmarines.length > 0) {
+        gameState.enemySubmarines.forEach(enemySub => {
+            const toEnemySub = new THREE.Vector3().subVectors(enemySub.object.position, subPos);
+            const distance = toEnemySub.length();
+            
+            if (distance < TARGET_DETECTION_RANGE) {
+                // Check if enemy sub is in front of the submarine (within a cone)
+                toEnemySub.normalize();
+                const angle = forward.angleTo(toEnemySub);
+                
+                // Only target enemy subs in a ~60 degree cone in front
+                if (angle < Math.PI / 3) {
+                    if (distance < nearestDistance) {
+                        nearestDistance = distance;
+                        nearestTarget = enemySub;
+                    }
+                }
+            }
+        });
+    }
+    
+    return nearestTarget;
 }
 
 // Update all torpedoes
@@ -283,29 +309,46 @@ export function updateTorpedoes(deltaTime) {
             }
         } else {
             // We've fired a torpedo, check if the current target still exists
-            if (currentTarget && !gameState.sharks.includes(currentTarget)) {
-                // Target is gone (destroyed or despawned)
-                removeTargetIndicator();
-                currentTarget = null;
-                targetLocked = false;
-                targetFired = false;
-            } else {
-                // Check if any guided torpedoes are still tracking this target
-                let stillTracking = false;
+            if (currentTarget) {
+                let targetExists = false;
                 
-                if (gameState.torpedoes && gameState.torpedoes.length > 0) {
-                    for (const torpedo of gameState.torpedoes) {
-                        if (torpedo.guided && torpedo.target === currentTarget) {
-                            stillTracking = true;
-                            break;
+                // Check if target exists in sharks array
+                if (gameState.sharks && gameState.sharks.includes(currentTarget)) {
+                    targetExists = true;
+                }
+                
+                // Check if target exists in enemy submarines array
+                if (!targetExists && gameState.enemySubmarines && gameState.enemySubmarines.includes(currentTarget)) {
+                    targetExists = true;
+                }
+                
+                if (!targetExists) {
+                    // Target is gone (destroyed or despawned)
+                    removeTargetIndicator();
+                    currentTarget = null;
+                    targetLocked = false;
+                    targetFired = false;
+                } else {
+                    // Check if any guided torpedoes are still tracking this target
+                    let stillTracking = false;
+                    
+                    if (gameState.torpedoes && gameState.torpedoes.length > 0) {
+                        for (const torpedo of gameState.torpedoes) {
+                            if (torpedo.guided && torpedo.target === currentTarget) {
+                                stillTracking = true;
+                                break;
+                            }
                         }
                     }
+                    
+                    // If no torpedoes are tracking the target anymore, reset the targetFired flag
+                    if (!stillTracking) {
+                        targetFired = false;
+                    }
                 }
-                
-                // If no torpedoes are tracking the target anymore, reset the targetFired flag
-                if (!stillTracking) {
-                    targetFired = false;
-                }
+            } else {
+                // No current target
+                targetFired = false;
             }
         }
         
@@ -331,7 +374,19 @@ export function updateTorpedoes(deltaTime) {
         // Update target indicator position and animation
         if (targetIndicator && currentTarget) {
             // Check if target still exists
-            if (!gameState.sharks.includes(currentTarget)) {
+            let targetExists = false;
+            
+            // Check if target exists in sharks array
+            if (gameState.sharks && gameState.sharks.includes(currentTarget)) {
+                targetExists = true;
+            }
+            
+            // Check if target exists in enemy submarines array
+            if (!targetExists && gameState.enemySubmarines && gameState.enemySubmarines.includes(currentTarget)) {
+                targetExists = true;
+            }
+            
+            if (!targetExists) {
                 removeTargetIndicator();
                 currentTarget = null;
                 targetLocked = false;
@@ -355,22 +410,34 @@ export function updateTorpedoes(deltaTime) {
         
         // Update each torpedo
         gameState.torpedoes.forEach((torpedo, index) => {
-            // Guide the torpedo if it's targeting a shark
+            // Guide the torpedo if it's targeting something
             if (torpedo.guided && torpedo.target) {
                 // Make sure target still exists
-                if (!gameState.sharks.includes(torpedo.target)) {
+                let targetExists = false;
+                
+                // Check if target exists in sharks array
+                if (gameState.sharks && gameState.sharks.includes(torpedo.target)) {
+                    targetExists = true;
+                }
+                
+                // Check if target exists in enemy submarines array
+                if (!targetExists && gameState.enemySubmarines && gameState.enemySubmarines.includes(torpedo.target)) {
+                    targetExists = true;
+                }
+                
+                if (!targetExists) {
                     torpedo.guided = false;
                 } else {
                     // Calculate target position with prediction
                     const targetPos = torpedo.target.object.position.clone();
                     
-                    // Add prediction offset based on shark's velocity
+                    // Add prediction offset based on target's velocity
                     if (torpedo.target.velocity) {
                         // Calculate intercept time based on distance and speeds
                         const distance = torpedo.object.position.distanceTo(targetPos);
                         const interceptTime = distance / GUIDED_TORPEDO_SPEED;
                         
-                        // Predict where the shark will be
+                        // Predict where the target will be
                         const predictedOffset = torpedo.target.velocity.clone()
                             .multiplyScalar(interceptTime * PREDICTION_FACTOR);
                         targetPos.add(predictedOffset);
@@ -539,7 +606,14 @@ function checkTorpedoCollisions(torpedo, index, torpedoesToRemove) {
             
             if (distance < combinedRadius) {
                 // Create explosion at impact point
-                createExplosion(shark.object.position.clone(), 0.8);
+                const impactPosition = shark.object.position.clone();
+                // Ensure we're passing a valid THREE.Vector3 position and a positive size
+                if (impactPosition && impactPosition instanceof THREE.Vector3) {
+                    createExplosion(impactPosition, 0.8);
+                } else {
+                    // Fallback to torpedo position if shark position is invalid
+                    createExplosion(torpedo.object.position.clone(), 0.8);
+                }
                 
                 // Mark torpedo for removal
                 if (!torpedoesToRemove.includes(index)) {
@@ -568,6 +642,97 @@ function checkTorpedoCollisions(torpedo, index, torpedoesToRemove) {
                 
                 // If this was the currently targeted shark, clear the targeting
                 if (shark === currentTarget) {
+                    removeTargetIndicator();
+                    currentTarget = null;
+                    targetLocked = false;
+                }
+            });
+        }
+    }
+    
+    // Check collisions with enemy submarines
+    if (gameState.enemySubmarines && gameState.enemySubmarines.length > 0) {
+        const torpedoRadius = torpedo.collisionRadius || 1.5;
+        const enemySubsToRemove = [];
+        
+        gameState.enemySubmarines.forEach((enemySub, enemySubIndex) => {
+            // For guided torpedoes, increase the collision radius for better hit chances
+            const effectiveRadius = torpedo.guided ? 
+                torpedoRadius * 1.8 : // Larger hit radius for guided torpedoes
+                torpedoRadius;
+                
+            const distance = torpedo.object.position.distanceTo(enemySub.object.position);
+            const enemySubRadius = 10; // Enemy submarine collision radius
+            const combinedRadius = effectiveRadius + enemySubRadius;
+            
+            if (distance < combinedRadius) {
+                // Create explosion at impact point
+                const impactPosition = enemySub.object.position.clone();
+                // Ensure we're passing a valid THREE.Vector3 position and a positive size
+                if (impactPosition && impactPosition instanceof THREE.Vector3) {
+                    createExplosion(impactPosition, 2.0); // Larger explosion for submarines
+                } else {
+                    // Fallback to torpedo position if enemy sub position is invalid
+                    createExplosion(torpedo.object.position.clone(), 2.0);
+                }
+                
+                // Mark torpedo for removal
+                if (!torpedoesToRemove.includes(index)) {
+                    torpedoesToRemove.push(index);
+                }
+                
+                // Calculate damage based on torpedo type
+                const torpedoDamage = torpedo.guided ? 40 : 30; // Guided torpedoes do more damage
+                
+                // Apply damage to the enemy submarine
+                const isDestroyed = damageEnemySubmarine(enemySub, torpedoDamage);
+                
+                // Only mark for removal if destroyed
+                if (isDestroyed) {
+                    // Mark enemy submarine for removal
+                    enemySubsToRemove.push(enemySubIndex);
+                    
+                    // Display destruction message
+                    const hitMessage = torpedo.guided ? 
+                        'Enemy submarine destroyed with guided torpedo!' : 
+                        'Enemy submarine destroyed!';
+                    gameState.messageSystem.addMessage(hitMessage, 2000);
+                } else {
+                    // Display hit message
+                    const healthPercent = Math.floor((enemySub.currentHealth / enemySub.maxHealth) * 100);
+                    const hitMessage = torpedo.guided ? 
+                        `Direct hit with guided torpedo! Enemy sub at ${healthPercent}%` : 
+                        `Direct hit! Enemy sub at ${healthPercent}%`;
+                    gameState.messageSystem.addMessage(hitMessage, 2000);
+                }
+            }
+        });
+        
+        // Remove enemy submarines hit by torpedoes
+        if (enemySubsToRemove.length > 0) {
+            enemySubsToRemove.sort((a, b) => b - a).forEach(enemySubIndex => {
+                const enemySub = gameState.enemySubmarines[enemySubIndex];
+                if (enemySub && enemySub.object) {
+                    gameState.scene.remove(enemySub.object);
+                    
+                    // Dispose of geometries to free memory
+                    enemySub.object.traverse(child => {
+                        if (child.geometry) {
+                            child.geometry.dispose();
+                        }
+                        if (child.material) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(material => material.dispose());
+                            } else {
+                                child.material.dispose();
+                            }
+                        }
+                    });
+                }
+                gameState.enemySubmarines.splice(enemySubIndex, 1);
+                
+                // If this was the currently targeted enemy sub, clear the targeting
+                if (enemySub === currentTarget) {
                     removeTargetIndicator();
                     currentTarget = null;
                     targetLocked = false;

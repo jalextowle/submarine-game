@@ -9,6 +9,9 @@ import { createBubbleBurst } from './bubbleEffects.js';
 export function createExplosion(position, size = 5) {
     debug('Creating explosion');
     try {
+        // Ensure size is a valid positive number
+        const validSize = Math.max(1, isNaN(size) ? 5 : size);
+        
         // Check performance limits - but always allow at least the newest explosion
         if (gameState.explosions.length >= gameState.performanceSettings.maxSimultaneousExplosions) {
             // We've reached the maximum number of simultaneous explosions
@@ -20,7 +23,7 @@ export function createExplosion(position, size = 5) {
         }
         
         // Create explosion particles - ensure we have enough particles to be visible
-        const particleCount = Math.min(12 * size, 60); // Increased from previous values to ensure visibility
+        const particleCount = Math.min(12 * validSize, 60); // Increased from previous values to ensure visibility
             
         const particleGeometry = new THREE.BufferGeometry();
         const particleMaterial = new THREE.PointsMaterial({
@@ -61,12 +64,12 @@ export function createExplosion(position, size = 5) {
         gameState.scene.add(explosionParticles);
         
         // Always include a light for better visibility, but optimize it
-        let explosionLight = new THREE.PointLight(0xFF9933, 1.5, size * 6);
+        let explosionLight = new THREE.PointLight(0xFF9933, 1.5, validSize * 6);
         explosionLight.position.copy(position);
         gameState.scene.add(explosionLight);
         
         // Add bubble effect for visual interest - always create some bubbles
-        createBubbleBurst(position, 10, size * 0.4);
+        createBubbleBurst(position, 10, validSize * 0.4);
         
         // Add to explosion array for updating - ensure it's visible long enough
         gameState.explosions.push({
@@ -75,7 +78,7 @@ export function createExplosion(position, size = 5) {
             velocities: velocities,
             maxAge: 1000, // Longer lifetime to ensure visibility
             createdTime: Date.now(),
-            size: size
+            size: validSize
         });
         
         debug('Explosion created');

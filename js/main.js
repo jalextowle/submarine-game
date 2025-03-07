@@ -15,6 +15,7 @@ import { createOceanFloor, debugTerrain } from './environment/oceanFloor.js';
 import { initChunkedWorld, updateChunks } from './environment/worldChunks.js';
 import * as biomeSystem from './environment/biomes.js';
 import { initSharkSystem, updateSharks } from './environment/sharks.js';
+import { initEnemySubmarineSystem, updateEnemySubmarines } from './environment/enemySubmarines.js';
 
 // Submarine imports
 import { createSubmarine } from './submarine/submarine.js';
@@ -70,6 +71,9 @@ export function initGame() {
         
         // Initialize shark system
         initSharkSystem();
+        
+        // Initialize enemy submarine system
+        initEnemySubmarineSystem();
         
         // Add debug controls
         setupDebugControls();
@@ -190,6 +194,9 @@ function animate() {
         
         // Update sharks
         updateSharks(deltaTime);
+        
+        // Update enemy submarines
+        updateEnemySubmarines(deltaTime);
         
         // Check if we have active explosions (for performance optimization)
         const hasExplosions = gameState.explosions && gameState.explosions.length > 0;
