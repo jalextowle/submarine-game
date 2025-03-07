@@ -7,19 +7,21 @@ import { getBiomeAtPosition } from './biomes.js';
 import { getTerrainHeightAtPosition } from './oceanFloor.js';
 import { BIOME_TYPES } from './biomes.js';
 import { OCEAN_DEPTH, WORLD_SIZE } from '../core/constants.js';
+import { createTorpedo } from '../submarine/torpedo.js';
 
 // Constants for enemy submarine behavior
-const ENEMY_SUB_SPEED = 0.7; // Slower than sharks
-const ENEMY_SUB_TURN_SPEED = 0.015;
+const ENEMY_SUB_SPEED = 1.8; // Increased from 1.2 to make them even faster
+const ENEMY_SUB_TURN_SPEED = 0.035; // Increased from 0.025 to make them more responsive
 const ENEMY_SUB_SPAWN_DISTANCE = 500; // Spawn distance from player
 const ENEMY_SUB_DESPAWN_DISTANCE = 700; // Distance at which enemy subs despawn
 const ENEMY_SUB_MIN_HEIGHT = 50; // Minimum height above ocean floor
 const MAX_ENEMY_SUBS = 5; // Maximum number of enemy submarines at once
 const ENEMY_SUB_SPAWN_INTERVAL = 7000; // Time between spawning attempts (ms) - less frequent than sharks
 const ENEMY_SUB_BEHAVIOR_PATTERNS = [
-    'straight', // Move in a straight line
-    'gentle_turn', // Make gentle turns
-    'patrol' // Patrol back and forth
+    'chase_player', // New behavior to chase the player
+    'intercept_player', // New behavior to intercept the player's path
+    'patrol', // Patrol back and forth
+    'stealth_ambush' // New behavior to hide and ambush
 ];
 const ENEMY_SUB_DENSITY_BY_BIOME = {
     [BIOME_TYPES.FLAT_SANDY]: 0.3,
@@ -28,12 +30,27 @@ const ENEMY_SUB_DENSITY_BY_BIOME = {
     [BIOME_TYPES.ISLAND]: 0.4
 };
 
+// Torpedo firing constants
+const TORPEDO_ATTACK_RANGE = 230; // Reduced from 250
+const TORPEDO_COOLDOWN = 8000; // Increased back to 8 seconds between torpedo fires
+const TORPEDO_LEAD_FACTOR = 0.8; // Reduced back to 0.8
+const GUIDED_TORPEDO_CHANCE = 0.5; // Reduced to 50% chance for guided torpedo
+const TORPEDO_MIN_FIRE_DISTANCE = 80; // Minimum distance to fire torpedoes
+const MAX_ACTIVE_ENEMY_TORPEDOES = 5; // Maximum number of enemy torpedoes active at once
+const TORPEDO_DAMAGE = 15; // Reduced torpedo damage (from 25)
+const GLOBAL_TORPEDO_COOLDOWN = 2500; // Minimum time between any torpedo fires from any submarine
+
+// Tracking when the last torpedo was fired globally
+let lastGlobalTorpedoTime = 0;
+
 // Initialize enemy submarine system
 export function initEnemySubmarineSystem() {
     debug('Initializing enemy submarine system');
     // Add enemy submarines array to game state
     gameState.enemySubmarines = [];
     gameState.lastEnemySubSpawnTime = 0;
+    gameState.enemyTorpedoes = [];
+    lastGlobalTorpedoTime = Date.now();
 }
 
 // Create a simple enemy submarine model based on the player's submarine
@@ -197,10 +214,19 @@ export async function spawnEnemySubmarine() {
             // Add to scene
             gameState.scene.add(enemySubModel);
             
-            // Pick a movement behavior pattern
-            const behaviorPattern = ENEMY_SUB_BEHAVIOR_PATTERNS[
-                Math.floor(Math.random() * ENEMY_SUB_BEHAVIOR_PATTERNS.length)
-            ];
+            // Pick a movement behavior pattern - weighted toward new aggressive behaviors
+            const behaviorRoll = Math.random();
+            let behaviorPattern;
+            
+            if (behaviorRoll < 0.4) {
+                behaviorPattern = 'chase_player';
+            } else if (behaviorRoll < 0.7) {
+                behaviorPattern = 'intercept_player';
+            } else if (behaviorRoll < 0.9) {
+                behaviorPattern = 'patrol';
+            } else {
+                behaviorPattern = 'stealth_ambush';
+            }
             
             // Create enemy submarine data
             const enemySub = {
@@ -223,13 +249,19 @@ export async function spawnEnemySubmarine() {
                 lastDamageTime: 0, // Track when sub last took damage
                 damageRecoveryTime: 5000, // Milliseconds before health regeneration begins after damage
                 healthBar: null, // Will hold reference to health bar object
+                // Add attack-related properties
+                lastTorpedoTime: 0, // Last time a torpedo was fired
+                torpedoCooldown: TORPEDO_COOLDOWN * (0.8 + Math.random() * 0.4), // Slightly randomized cooldown
                 behaviorState: {
                     phase: 0, // For cyclic behaviors
                     straightLineDuration: 5000 + Math.random() * 5000, // Time to swim straight
                     turnDirection: Math.random() > 0.5 ? 1 : -1, // For turning behaviors
                     turnDuration: 3000 + Math.random() * 2000, // How long to turn
                     patrolDistance: 200 + Math.random() * 200, // Distance for patrol pattern
-                    patrolDirection: 1 // Current patrol direction
+                    patrolDirection: 1, // Current patrol direction
+                    ambushReady: false, // For stealth ambush behavior
+                    ambushDistance: 120 + Math.random() * 60, // Distance for ambush
+                    maxAmbushTime: 15000 + Math.random() * 10000 // Max time to wait for ambush
                 }
             };
             
@@ -268,61 +300,35 @@ function updateEnemySubBehavior(enemySub, deltaTime, sub) {
     let targetPosition = null;
     const currentTime = Date.now();
     
+    // Player submarine position and velocity
+    const playerPos = sub.position.clone();
+    const playerVelocity = gameState.submarine.physics ? 
+                          gameState.submarine.physics.velocity.clone() : 
+                          new THREE.Vector3();
+    
     // Update behavior state based on pattern
     switch (enemySub.behaviorPattern) {
-        case 'straight':
-            // Change direction periodically
-            if (currentTime - enemySub.lastDirectionChange > enemySub.behaviorState.straightLineDuration) {
-                // Pick new random direction
-                const randomDir = new THREE.Vector3(
-                    (Math.random() - 0.5) * 2,
-                    (Math.random() - 0.5) * 0.3,
-                    (Math.random() - 0.5) * 2
-                ).normalize();
-                
-                // Set new target far away in that direction
-                targetPosition = enemySub.object.position.clone().add(
-                    randomDir.multiplyScalar(500)
-                );
-                
-                enemySub.lastDirectionChange = currentTime;
-                enemySub.behaviorState.straightLineDuration = 5000 + Math.random() * 5000;
-            } else if (!enemySub.targetPosition) {
-                // Initial target
-                const randomDir = new THREE.Vector3(
-                    (Math.random() - 0.5) * 2,
-                    (Math.random() - 0.5) * 0.3,
-                    (Math.random() - 0.5) * 2
-                ).normalize();
-                
-                targetPosition = enemySub.object.position.clone().add(
-                    randomDir.multiplyScalar(500)
-                );
-            }
+        case 'chase_player':
+            // Directly chase the player submarine
+            targetPosition = playerPos.clone();
+            
+            // Try to fire torpedoes when in range
+            tryFireTorpedo(enemySub, sub, currentTime);
             break;
             
-        case 'gentle_turn':
-            // Continuous gentle turning
-            if (!enemySub.targetPosition || currentTime - enemySub.lastDirectionChange > enemySub.behaviorState.turnDuration) {
-                // Set new turn parameters
-                enemySub.behaviorState.turnDirection = Math.random() > 0.5 ? 1 : -1;
-                enemySub.lastDirectionChange = currentTime;
-                enemySub.behaviorState.turnDuration = 3000 + Math.random() * 2000;
-            }
+        case 'intercept_player':
+            // Calculate interception point based on player velocity
+            // Predict where the player will be and try to intercept
+            const interceptDistance = enemySub.object.position.distanceTo(playerPos);
+            const interceptTime = interceptDistance / enemySub.speed;
             
-            // Create a turning direction based on current forward direction
-            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(enemySub.object.quaternion);
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(enemySub.object.quaternion);
-            
-            // Add a component of the right vector to create a turn
-            const turnVector = forward.clone().add(
-                right.multiplyScalar(0.3 * enemySub.behaviorState.turnDirection)
-            ).normalize();
-            
-            // Set target position in the turning direction
-            targetPosition = enemySub.object.position.clone().add(
-                turnVector.multiplyScalar(300)
+            // Create an intercept position by projecting player position along velocity
+            targetPosition = playerPos.clone().add(
+                playerVelocity.clone().multiplyScalar(interceptTime * TORPEDO_LEAD_FACTOR)
             );
+            
+            // Try to fire torpedoes when in range
+            tryFireTorpedo(enemySub, sub, currentTime);
             break;
             
         case 'patrol':
@@ -353,10 +359,225 @@ function updateEnemySubBehavior(enemySub, deltaTime, sub) {
             targetPosition = enemySub.initialPatrolPosition.clone().add(
                 patrolDirection.multiplyScalar(enemySub.behaviorState.patrolDistance)
             );
+            
+            // Check if player comes within range while patrolling
+            const patrolDistanceToPlayer = enemySub.object.position.distanceTo(playerPos);
+            if (patrolDistanceToPlayer < TORPEDO_ATTACK_RANGE * 0.7) {
+                // Switch to chase behavior temporarily
+                targetPosition = playerPos.clone();
+                
+                // Try to fire torpedoes when in range
+                tryFireTorpedo(enemySub, sub, currentTime);
+            }
+            break;
+            
+        case 'stealth_ambush':
+            // Hide and wait for player to come close, then ambush
+            if (!enemySub.ambushPosition) {
+                // Set initial ambush position
+                enemySub.ambushPosition = enemySub.object.position.clone();
+                enemySub.ambushStartTime = currentTime;
+                enemySub.behaviorState.ambushReady = false;
+            }
+            
+            const ambushDistanceToPlayer = enemySub.object.position.distanceTo(playerPos);
+            
+            if (!enemySub.behaviorState.ambushReady) {
+                // Still getting into position
+                if (enemySub.object.position.distanceTo(enemySub.ambushPosition) < 10) {
+                    // We've reached the ambush position, now wait
+                    enemySub.behaviorState.ambushReady = true;
+                } else {
+                    // Move to ambush position
+                    targetPosition = enemySub.ambushPosition;
+                }
+            } else {
+                // Ready to ambush, check if player is close enough or we've waited too long
+                if (ambushDistanceToPlayer < enemySub.behaviorState.ambushDistance || 
+                    currentTime - enemySub.ambushStartTime > enemySub.behaviorState.maxAmbushTime) {
+                    
+                    // Ambush! Chase player
+                    targetPosition = playerPos.clone();
+                    
+                    // Try to fire torpedoes if in range
+                    if (ambushDistanceToPlayer < TORPEDO_ATTACK_RANGE) {
+                        tryFireTorpedo(enemySub, sub, currentTime, true); // Force torpedo fire for ambush
+                    }
+                    
+                    // Reset ambush after action
+                    if (ambushDistanceToPlayer > enemySub.behaviorState.ambushDistance * 1.5 || 
+                        currentTime - enemySub.ambushStartTime > enemySub.behaviorState.maxAmbushTime) {
+                        
+                        // Find new ambush position
+                        const randomDir = new THREE.Vector3(
+                            (Math.random() - 0.5) * 2,
+                            (Math.random() - 0.5) * 0.3,
+                            (Math.random() - 0.5) * 2
+                        ).normalize();
+                        
+                        enemySub.ambushPosition = playerPos.clone().add(
+                            randomDir.multiplyScalar(enemySub.behaviorState.ambushDistance * 1.5)
+                        );
+                        enemySub.ambushStartTime = currentTime;
+                        enemySub.behaviorState.ambushReady = false;
+                    }
+                } else {
+                    // Still waiting, stay in position
+                    targetPosition = enemySub.ambushPosition;
+                }
+            }
             break;
     }
     
     return targetPosition;
+}
+
+// Try to fire torpedo at player
+function tryFireTorpedo(enemySub, playerSub, currentTime, forceFireAnyway = false) {
+    // Check cooldown for this specific submarine
+    if (currentTime - enemySub.lastTorpedoTime < enemySub.torpedoCooldown && !forceFireAnyway) {
+        return null;
+    }
+    
+    // Check global cooldown for all submarines
+    if (currentTime - lastGlobalTorpedoTime < GLOBAL_TORPEDO_COOLDOWN && !forceFireAnyway) {
+        return null;
+    }
+    
+    // Check maximum number of active torpedoes
+    if (gameState.enemyTorpedoes && gameState.enemyTorpedoes.length >= MAX_ACTIVE_ENEMY_TORPEDOES) {
+        return null;
+    }
+    
+    // Calculate distance to player
+    const distanceToPlayer = enemySub.object.position.distanceTo(playerSub.position);
+    
+    // Ensure sub is not too close to player (prevents instant kill-zones)
+    if (distanceToPlayer < TORPEDO_MIN_FIRE_DISTANCE && !forceFireAnyway) {
+        return null;
+    }
+    
+    // Check if player is in range
+    if (distanceToPlayer <= TORPEDO_ATTACK_RANGE || forceFireAnyway) {
+        // Get enemy sub's forward direction
+        const forwardDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(enemySub.object.quaternion);
+        
+        // Get direction to player
+        const directionToPlayer = new THREE.Vector3().subVectors(
+            playerSub.position,
+            enemySub.object.position
+        ).normalize();
+        
+        // Check if player is somewhat in front (within a 75-degree cone) - reduced from 90 degrees
+        const angleToPlayer = forwardDirection.angleTo(directionToPlayer);
+        
+        if (angleToPlayer < Math.PI / 2.4 || forceFireAnyway) {  // ~75 degrees (reduced from 90)
+            // Random chance to skip firing (even if conditions are met)
+            if (!forceFireAnyway && Math.random() < 0.4) {  // 40% chance to skip firing
+                return null;
+            }
+            
+            // Create torpedo
+            const torpedo = createEnemyTorpedo(enemySub, playerSub);
+            
+            if (torpedo) {
+                // Update last torpedo time for this submarine
+                enemySub.lastTorpedoTime = currentTime;
+                
+                // Update global torpedo time
+                lastGlobalTorpedoTime = currentTime;
+                
+                return torpedo;
+            }
+        }
+    }
+    
+    return null;
+}
+
+// Create a torpedo from an enemy submarine
+function createEnemyTorpedo(enemySub, targetSub) {
+    try {
+        // Get enemy submarine's forward direction
+        const forwardDirection = new THREE.Vector3(0, 0, -1);
+        forwardDirection.applyQuaternion(enemySub.object.quaternion);
+        
+        // Create torpedo group
+        const torpedo = new THREE.Group();
+        
+        // Torpedo body - elongated cylinder
+        const torpedoBodyGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 16);
+        const torpedoMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x880000, // Dark red to distinguish from player torpedoes
+            metalness: 0.7,
+            roughness: 0.3
+        });
+        
+        const torpedoBody = new THREE.Mesh(torpedoBodyGeometry, torpedoMaterial);
+        torpedoBody.rotation.x = Math.PI / 2; // Align with Z-axis
+        
+        // Torpedo nose - cone
+        const torpedoNoseGeometry = new THREE.ConeGeometry(0.3, 0.7, 16);
+        const torpedoNose = new THREE.Mesh(torpedoNoseGeometry, torpedoMaterial);
+        torpedoNose.rotation.x = -Math.PI / 2;
+        torpedoNose.position.z = 1.85;
+        
+        // Torpedo tail - small cylinder
+        const torpedoTailGeometry = new THREE.CylinderGeometry(0.3, 0.2, 0.5, 16);
+        const torpedoTail = new THREE.Mesh(torpedoTailGeometry, torpedoMaterial);
+        torpedoTail.rotation.x = Math.PI / 2;
+        torpedoTail.position.z = -1.75;
+        
+        // Add all parts to torpedo group
+        torpedo.add(torpedoBody);
+        torpedo.add(torpedoNose);
+        torpedo.add(torpedoTail);
+        
+        // Position torpedo at submarine's front, offset forward
+        const torpedoStartPos = enemySub.object.position.clone();
+        torpedoStartPos.addScaledVector(forwardDirection, 10);
+        torpedo.position.copy(torpedoStartPos);
+        
+        // Rotate torpedo to match submarine's orientation
+        torpedo.rotation.copy(enemySub.object.rotation);
+        
+        // Add to scene
+        gameState.scene.add(torpedo);
+        
+        // Determine if this should be a guided torpedo
+        const isGuided = Math.random() < GUIDED_TORPEDO_CHANCE;
+        
+        // Calculate torpedo speed
+        const torpedoSpeed = isGuided ? 3.0 : 3.5; // Reduced speeds slightly
+        
+        // Calculate initial velocity
+        const initialVelocity = forwardDirection.clone().multiplyScalar(torpedoSpeed);
+        
+        // Add torpedo to game state
+        if (!gameState.enemyTorpedoes) {
+            gameState.enemyTorpedoes = [];
+        }
+        
+        const torpedoData = {
+            object: torpedo,
+            velocity: initialVelocity,
+            speed: torpedoSpeed,
+            creationTime: Date.now(),
+            lifetime: 6000, // 6 seconds lifetime
+            guided: isGuided,
+            target: isGuided ? { object: targetSub } : null, // Target player submarine if guided
+            turnSpeed: 0.03, // Reduced from 0.04 - How quickly guided torpedoes can turn
+            friendly: false, // Mark as enemy torpedo
+            damage: TORPEDO_DAMAGE // Use the damage constant
+        };
+        
+        gameState.enemyTorpedoes.push(torpedoData);
+        
+        return torpedoData;
+    } catch (error) {
+        console.error('Error creating enemy torpedo:', error);
+        return null;
+    }
 }
 
 // Create a health bar for an enemy submarine
@@ -567,6 +788,9 @@ export function updateEnemySubmarines(deltaTime) {
                         targetDirection.y = Math.min(targetDirection.y, -0.5);
                     }
                     
+                    // For more realistic movement, create a rotation that points the submarine's nose 
+                    // toward the target direction (and thus toward the player when chasing)
+                    
                     // Set target quaternion to face the target direction
                     const targetQuaternion = new THREE.Quaternion();
                     const up = new THREE.Vector3(0, 1, 0);
@@ -582,14 +806,27 @@ export function updateEnemySubmarines(deltaTime) {
                     targetQuaternion.setFromRotationMatrix(lookMatrix);
                     
                     // Smoothly interpolate current rotation to target rotation
-                    enemySub.object.quaternion.slerp(targetQuaternion, enemySub.turnSpeed * deltaTime * 10);
+                    // Using adaptive turn rate - turn faster when further from target direction
+                    const currentDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(enemySub.object.quaternion);
+                    const angleDifference = currentDirection.angleTo(targetDirection);
+                    
+                    // Calculate adaptive turn speed - faster turn when angle is larger
+                    const adaptiveTurnSpeed = Math.min(
+                        enemySub.turnSpeed * (1.0 + angleDifference * 2),
+                        enemySub.turnSpeed * 3
+                    );
+                    
+                    // Apply smoother rotation with adaptive turn speed
+                    enemySub.object.quaternion.slerp(targetQuaternion, adaptiveTurnSpeed * deltaTime * 10);
                     
                     // Calculate forward direction based on current rotation
                     const forwardDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(enemySub.object.quaternion);
                     
-                    // Move forward in the direction the enemy sub is facing
+                    // Move forward in the direction the enemy sub is facing with adaptive speed based on alignment
+                    // Move faster when well-aligned with target direction
+                    const alignmentFactor = Math.max(0.5, forwardDirection.dot(targetDirection));
                     enemySub.object.position.add(
-                        forwardDirection.multiplyScalar(enemySub.speed * deltaTime * 30)
+                        forwardDirection.multiplyScalar(enemySub.speed * alignmentFactor * deltaTime * 30)
                     );
                 };
                 
@@ -612,10 +849,148 @@ export function updateEnemySubmarines(deltaTime) {
             }
         });
         
+        // Update enemy torpedoes
+        updateEnemyTorpedoes(deltaTime);
+        
         // Remove enemy submarines marked for removal (in reverse order to maintain indices)
         removeEnemySubmarines(enemySubsToRemove);
     } catch (error) {
         console.error('Error in updateEnemySubmarines:', error);
+    }
+}
+
+// Update enemy torpedoes
+function updateEnemyTorpedoes(deltaTime) {
+    try {
+        if (!gameState.enemyTorpedoes || gameState.enemyTorpedoes.length === 0) return;
+        
+        const currentTime = Date.now();
+        const torpedoesToRemove = [];
+        
+        // Update each torpedo
+        gameState.enemyTorpedoes.forEach((torpedo, index) => {
+            // Check lifetime
+            if (currentTime - torpedo.creationTime > torpedo.lifetime) {
+                torpedoesToRemove.push(index);
+                return;
+            }
+            
+            // Guide torpedo if it's targeting something
+            if (torpedo.guided && torpedo.target) {
+                // Make sure target still exists
+                const targetExists = torpedo.target.object ? true : false;
+                
+                if (!targetExists) {
+                    torpedo.guided = false;
+                } else {
+                    // Calculate target position with prediction
+                    const targetPos = torpedo.target.object.position.clone();
+                    
+                    // Add prediction offset based on target's velocity if available
+                    if (gameState.submarine.physics && gameState.submarine.physics.velocity) {
+                        // Calculate intercept time based on distance and speeds
+                        const distance = torpedo.object.position.distanceTo(targetPos);
+                        const interceptTime = distance / torpedo.speed;
+                        
+                        // Predict where the target will be
+                        const predictedOffset = gameState.submarine.physics.velocity.clone()
+                            .multiplyScalar(interceptTime * TORPEDO_LEAD_FACTOR);
+                        targetPos.add(predictedOffset);
+                    }
+                    
+                    // Calculate direction to target
+                    const targetDirection = new THREE.Vector3().subVectors(
+                        targetPos,
+                        torpedo.object.position
+                    ).normalize();
+                    
+                    // Create a quaternion for the new direction
+                    const targetQuaternion = new THREE.Quaternion();
+                    const lookAtMatrix = new THREE.Matrix4();
+                    lookAtMatrix.lookAt(
+                        new THREE.Vector3(0, 0, 0),
+                        targetDirection,
+                        new THREE.Vector3(0, 1, 0)
+                    );
+                    targetQuaternion.setFromRotationMatrix(lookAtMatrix);
+                    
+                    // Calculate current torpedo direction
+                    const torpedoDirection = new THREE.Vector3(0, 0, -1);
+                    torpedoDirection.applyQuaternion(torpedo.object.quaternion);
+                    
+                    // Calculate angle between current direction and target direction
+                    const angle = torpedoDirection.angleTo(targetDirection);
+                    
+                    // Use adaptive turn speed - turn faster when far off target
+                    const adaptiveTurnSpeed = Math.min(
+                        torpedo.turnSpeed * (1.0 + angle * 2), 
+                        torpedo.turnSpeed * 3
+                    );
+                    
+                    // Smoothly rotate toward target
+                    torpedo.object.quaternion.slerp(
+                        targetQuaternion, 
+                        adaptiveTurnSpeed
+                    );
+                    
+                    // Get torpedo's new forward direction
+                    const forward = new THREE.Vector3(0, 0, -1);
+                    forward.applyQuaternion(torpedo.object.quaternion);
+                    
+                    // Update velocity
+                    torpedo.velocity.copy(forward).multiplyScalar(torpedo.speed);
+                }
+            }
+            
+            // Move torpedo
+            torpedo.object.position.add(torpedo.velocity);
+            
+            // Check for collisions with player submarine
+            if (gameState.submarine && gameState.submarine.object) {
+                const playerSub = gameState.submarine.object;
+                const distanceToPlayer = torpedo.object.position.distanceTo(playerSub.position);
+                
+                // Simple collision detection with player submarine
+                if (distanceToPlayer < 7) { // Approximate submarine radius for collision
+                    // Damage player
+                    if (gameState.submarine && gameState.submarine.damage) {
+                        gameState.submarine.damage(torpedo.damage || TORPEDO_DAMAGE); // Use the torpedo's damage value or fallback to constant
+                        
+                        // Create explosion effect
+                        if (typeof createExplosion === 'function') {
+                            createExplosion(torpedo.object.position.clone(), 1.0);
+                        }
+                    }
+                    
+                    // Mark torpedo for removal
+                    torpedoesToRemove.push(index);
+                }
+            }
+        });
+        
+        // Remove torpedoes marked for removal (in reverse order to maintain indices)
+        torpedoesToRemove.sort((a, b) => b - a).forEach(index => {
+            const torpedo = gameState.enemyTorpedoes[index];
+            if (torpedo && torpedo.object) {
+                gameState.scene.remove(torpedo.object);
+                
+                // Dispose of geometries to free memory
+                torpedo.object.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(material => material.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                });
+            }
+            
+            gameState.enemyTorpedoes.splice(index, 1);
+        });
+    } catch (error) {
+        console.error('Error updating enemy torpedoes:', error);
     }
 }
 

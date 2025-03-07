@@ -4,6 +4,13 @@ import * as THREE from 'three';
 import gameState from '../core/state.js';
 import { debug } from '../core/debug.js';
 import { createPropeller, animatePropeller } from './propeller.js';
+import { createExplosion } from '../effects/explosions.js';
+
+// Health and damage constants
+const MAX_SUBMARINE_HEALTH = 100;
+const DAMAGE_RECOVERY_TIME = 10000; // 10 seconds before health regeneration starts
+const HEALTH_REGEN_RATE = 5; // Health points regenerated per second
+const LOW_HEALTH_THRESHOLD = 25; // Threshold for low health warning
 
 // Create the submarine with all its components
 export function createSubmarine() {
@@ -152,10 +159,299 @@ export function createSubmarine() {
         gameState.submarine.rotationOrder = 'YXZ';
         gameState.submarine.initialYaw = Math.PI;
         
+        // Initialize submarine health system
+        initializeSubmarineHealth();
+        
         debug('Submarine flipped along Z-axis to reverse direction');
         return submarine;
     } catch (error) {
         console.error('Error in createSubmarine:', error);
+    }
+}
+
+// Initialize the submarine health system
+function initializeSubmarineHealth() {
+    // Set up health properties
+    gameState.submarine.maxHealth = MAX_SUBMARINE_HEALTH;
+    gameState.submarine.currentHealth = MAX_SUBMARINE_HEALTH;
+    gameState.submarine.lastDamageTime = 0;
+    gameState.submarine.healthRegenRate = HEALTH_REGEN_RATE;
+    gameState.submarine.damageRecoveryTime = DAMAGE_RECOVERY_TIME;
+    gameState.submarine.damageEffects = {
+        damageSmokeParticles: null,
+        damageLights: [],
+        damageOverlay: null
+    };
+    
+    // Create health bar
+    createHealthBar();
+    
+    // Add damage function to the submarine object
+    gameState.submarine.damage = damageSubmarine;
+    
+    // Add update health function
+    gameState.submarine.updateHealth = updateSubmarineHealth;
+    
+    debug('Submarine health system initialized');
+}
+
+// Create a health bar for the submarine
+function createHealthBar() {
+    // Create the health bar HTML element if it doesn't exist
+    if (!document.getElementById('submarine-health-bar')) {
+        const healthBarContainer = document.createElement('div');
+        healthBarContainer.id = 'submarine-health-bar-container';
+        healthBarContainer.style.position = 'absolute';
+        healthBarContainer.style.bottom = '20px';
+        healthBarContainer.style.left = '20px';
+        healthBarContainer.style.width = '200px';
+        healthBarContainer.style.height = '30px';
+        healthBarContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        healthBarContainer.style.borderRadius = '5px';
+        healthBarContainer.style.padding = '5px';
+        healthBarContainer.style.zIndex = '100';
+        
+        const healthBarLabel = document.createElement('div');
+        healthBarLabel.id = 'submarine-health-bar-label';
+        healthBarLabel.textContent = 'HULL INTEGRITY';
+        healthBarLabel.style.color = 'white';
+        healthBarLabel.style.fontSize = '12px';
+        healthBarLabel.style.marginBottom = '5px';
+        healthBarLabel.style.fontFamily = 'Arial, sans-serif';
+        
+        const healthBarOuter = document.createElement('div');
+        healthBarOuter.style.width = '100%';
+        healthBarOuter.style.height = '15px';
+        healthBarOuter.style.backgroundColor = 'rgba(50, 50, 50, 0.7)';
+        healthBarOuter.style.borderRadius = '3px';
+        healthBarOuter.style.overflow = 'hidden';
+        
+        const healthBarInner = document.createElement('div');
+        healthBarInner.id = 'submarine-health-bar';
+        healthBarInner.style.width = '100%';
+        healthBarInner.style.height = '100%';
+        healthBarInner.style.backgroundColor = 'rgba(0, 255, 0, 0.7)';
+        healthBarInner.style.transition = 'width 0.3s ease, background-color 0.3s ease';
+        
+        healthBarOuter.appendChild(healthBarInner);
+        healthBarContainer.appendChild(healthBarLabel);
+        healthBarContainer.appendChild(healthBarOuter);
+        document.body.appendChild(healthBarContainer);
+    }
+}
+
+// Update the submarine health bar
+function updateHealthBar() {
+    const healthBar = document.getElementById('submarine-health-bar');
+    if (!healthBar) return;
+    
+    const healthPercent = gameState.submarine.currentHealth / gameState.submarine.maxHealth;
+    
+    // Update width
+    healthBar.style.width = `${healthPercent * 100}%`;
+    
+    // Update color based on health level
+    if (healthPercent > 0.6) {
+        healthBar.style.backgroundColor = 'rgba(0, 255, 0, 0.7)'; // Green
+    } else if (healthPercent > 0.3) {
+        healthBar.style.backgroundColor = 'rgba(255, 255, 0, 0.7)'; // Yellow
+    } else {
+        healthBar.style.backgroundColor = 'rgba(255, 0, 0, 0.7)'; // Red
+    }
+}
+
+// Apply damage to the submarine
+function damageSubmarine(damageAmount) {
+    try {
+        // Set last damage time
+        gameState.submarine.lastDamageTime = Date.now();
+        
+        // Reduce health
+        gameState.submarine.currentHealth = Math.max(0, gameState.submarine.currentHealth - damageAmount);
+        
+        // Update the health bar
+        updateHealthBar();
+        
+        // Play damage sound if available
+        if (typeof playDamageSound === 'function') {
+            playDamageSound();
+        }
+        
+        // Add screen shake effect
+        addScreenShake(damageAmount * 0.05);
+        
+        // Display damage message
+        const healthPercent = Math.floor((gameState.submarine.currentHealth / gameState.submarine.maxHealth) * 100);
+        gameState.messageSystem.addMessage(`Hull damage! Integrity: ${healthPercent}%`, 2000);
+        
+        // Check if submarine is destroyed
+        if (gameState.submarine.currentHealth <= 0) {
+            submarineDestroyed();
+            return true;
+        }
+        
+        // Add visual damage effects based on health percentage
+        updateDamageEffects();
+        
+        return false;
+    } catch (error) {
+        console.error('Error applying damage to submarine:', error);
+        return false;
+    }
+}
+
+// Update submarine health (regeneration, etc.)
+function updateSubmarineHealth(deltaTime) {
+    try {
+        // Skip if at full health
+        if (gameState.submarine.currentHealth >= gameState.submarine.maxHealth) {
+            return;
+        }
+        
+        const currentTime = Date.now();
+        
+        // Check if enough time has passed since last damage for regeneration
+        if (currentTime - gameState.submarine.lastDamageTime > gameState.submarine.damageRecoveryTime) {
+            // Regenerate health
+            gameState.submarine.currentHealth = Math.min(
+                gameState.submarine.maxHealth,
+                gameState.submarine.currentHealth + (gameState.submarine.healthRegenRate * deltaTime)
+            );
+            
+            // Update health bar
+            updateHealthBar();
+            
+            // Update visual damage effects
+            updateDamageEffects();
+            
+            // If health is restored to full, display message
+            if (gameState.submarine.currentHealth >= gameState.submarine.maxHealth) {
+                gameState.messageSystem.addMessage('Hull integrity restored', 2000);
+            }
+        }
+    } catch (error) {
+        console.error('Error updating submarine health:', error);
+    }
+}
+
+// Add screen shake effect on damage
+function addScreenShake(intensity) {
+    if (!gameState.camera || !gameState.camera.main) return;
+    
+    // Store original camera position
+    const originalPosition = gameState.camera.main.position.clone();
+    
+    // Apply random shake offsets
+    function applyShake() {
+        if (!gameState.camera || !gameState.camera.main) return;
+        
+        const offsetX = (Math.random() - 0.5) * intensity * 2;
+        const offsetY = (Math.random() - 0.5) * intensity * 2;
+        const offsetZ = (Math.random() - 0.5) * intensity * 2;
+        
+        gameState.camera.main.position.set(
+            originalPosition.x + offsetX,
+            originalPosition.y + offsetY,
+            originalPosition.z + offsetZ
+        );
+        
+        // Decrease intensity for next shake
+        intensity *= 0.9;
+        
+        // Continue shaking if intensity is still significant
+        if (intensity > 0.01) {
+            setTimeout(applyShake, 16); // ~60fps
+        } else {
+            // Reset to original position when done
+            gameState.camera.main.position.copy(originalPosition);
+        }
+    }
+    
+    // Start the shake effect
+    applyShake();
+}
+
+// Update visual damage effects based on current health
+function updateDamageEffects() {
+    const healthPercent = gameState.submarine.currentHealth / gameState.submarine.maxHealth;
+    
+    // TODO: Add smoke particles and damage lights when health is low
+    // This could be expanded in the future
+}
+
+// Handle submarine destruction
+function submarineDestroyed() {
+    try {
+        // Create large explosion at submarine position
+        if (gameState.submarine.object) {
+            createExplosion(gameState.submarine.object.position.clone(), 3.0);
+        }
+        
+        // Display game over message
+        gameState.messageSystem.addMessage('SUBMARINE DESTROYED', 5000);
+        
+        // Set game over state
+        gameState.gameOver = true;
+        
+        // Show game over screen
+        showGameOverScreen();
+    } catch (error) {
+        console.error('Error handling submarine destruction:', error);
+    }
+}
+
+// Show game over screen
+function showGameOverScreen() {
+    // Create game over overlay if it doesn't exist
+    if (!document.getElementById('game-over-screen')) {
+        const gameOverScreen = document.createElement('div');
+        gameOverScreen.id = 'game-over-screen';
+        gameOverScreen.style.position = 'absolute';
+        gameOverScreen.style.top = '0';
+        gameOverScreen.style.left = '0';
+        gameOverScreen.style.width = '100%';
+        gameOverScreen.style.height = '100%';
+        gameOverScreen.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+        gameOverScreen.style.display = 'flex';
+        gameOverScreen.style.flexDirection = 'column';
+        gameOverScreen.style.justifyContent = 'center';
+        gameOverScreen.style.alignItems = 'center';
+        gameOverScreen.style.zIndex = '1000';
+        
+        const gameOverTitle = document.createElement('h1');
+        gameOverTitle.textContent = 'SUBMARINE DESTROYED';
+        gameOverTitle.style.color = 'red';
+        gameOverTitle.style.fontFamily = 'Arial, sans-serif';
+        gameOverTitle.style.fontSize = '40px';
+        gameOverTitle.style.marginBottom = '20px';
+        
+        const gameOverMessage = document.createElement('p');
+        gameOverMessage.textContent = 'Your submarine has been destroyed by enemy forces.';
+        gameOverMessage.style.color = 'white';
+        gameOverMessage.style.fontFamily = 'Arial, sans-serif';
+        gameOverMessage.style.fontSize = '20px';
+        gameOverMessage.style.marginBottom = '40px';
+        
+        const restartButton = document.createElement('button');
+        restartButton.textContent = 'RESTART MISSION';
+        restartButton.style.padding = '15px 30px';
+        restartButton.style.fontSize = '18px';
+        restartButton.style.backgroundColor = '#003366';
+        restartButton.style.color = 'white';
+        restartButton.style.border = 'none';
+        restartButton.style.borderRadius = '5px';
+        restartButton.style.cursor = 'pointer';
+        
+        // Add restart functionality
+        restartButton.addEventListener('click', () => {
+            location.reload(); // Simple page reload to restart
+        });
+        
+        gameOverScreen.appendChild(gameOverTitle);
+        gameOverScreen.appendChild(gameOverMessage);
+        gameOverScreen.appendChild(restartButton);
+        
+        document.body.appendChild(gameOverScreen);
     }
 }
 

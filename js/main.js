@@ -189,6 +189,11 @@ function animate() {
         // Update submarine camera
         updateSubmarineCamera();
         
+        // Update submarine health if the function exists
+        if (gameState.submarine && gameState.submarine.updateHealth) {
+            gameState.submarine.updateHealth(deltaTime);
+        }
+        
         // Update torpedoes
         updateTorpedoes(deltaTime);
         
